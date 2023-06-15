@@ -4,7 +4,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use file_format::FileFormat;
+use file_format::{FileFormat, Kind};
 use std::{
     env,
     fs::{self, remove_dir, remove_dir_all, remove_file},
@@ -70,6 +70,8 @@ pub struct App {
     input: String,
     /// Current input mode
     input_mode: InputMode,
+    // register for yanking and moving
+    register: PathBuf,
 }
 
 impl App {
@@ -98,6 +100,7 @@ impl App {
             metadata: String::new(),
             input_mode: InputMode::Normal,
             input: String::new(),
+            register: PathBuf::new(),
         }
     }
 
@@ -124,28 +127,32 @@ impl App {
                     // check if dir is empty first...
                     self.refresh_right_column();
                 } else if selected.is_file() {
-                    match FileFormat::from_file(selected).unwrap() {
-                        FileFormat::PortableDocumentFormat => {
+                    // i should probably use kind
+                    match FileFormat::from_file(selected).unwrap().kind() {
+                        Kind::Book | Kind::Document => {
                             // fixme, obviously
                             Command::new("/usr/bin/zathura")
                                 .arg(selected.as_path())
                                 .spawn()
                                 .expect("failed to exec");
                         }
-                        FileFormat::PortableNetworkGraphics
-                        | FileFormat::JointPhotographicExpertsGroup
-                        | FileFormat::PortableBitmap => {
+                        Kind::Text => {
+                            // fixme, obviously
+                            Command::new("/usr/bin/nvim")
+                                .arg(selected.as_path())
+                                .spawn()
+                                .expect("failed to exec");
+                        }
+                        Kind::Image => {
                             // fixme, obviously
                             Command::new("/usr/bin/sxiv")
                                 .arg(selected.as_path())
                                 .spawn()
                                 .expect("failed to exec");
                         }
-                        FileFormat::PlainText
-                        | FileFormat::SubripText
-                        | FileFormat::RichTextFormat => {
+                        Kind::Video => {
                             // fixme, obviously
-                            Command::new("/usr/bin/nvim")
+                            Command::new("/usr/bin/vlc")
                                 .arg(selected.as_path())
                                 .spawn()
                                 .expect("failed to exec");
@@ -261,6 +268,24 @@ impl App {
         match command.as_str() {
             _ => {}
         }
+    }
+
+    // TODO gotta use this more
+    fn get_selected(&self) -> Option<&PathBuf> {
+        self.middle_column.items.get(self.middle_column.state.selected().unwrap_or(0))
+    }
+
+    fn yank_file(&mut self) {
+        self.register = self.get_selected().unwrap().to_path_buf();
+    }
+
+    fn paste_moved_file(&mut self) {
+        let file = &self.register;
+
+    }
+
+    fn paste_yanked_file(&mut self) {
+        todo!()
     }
 }
 
@@ -392,9 +417,9 @@ fn run_app<B: Backend>(
                             // implement deleting stuff
                             app.input_mode = InputMode::Editing;
                             app.input.push('d');
-                            // app.delete_file();
-                            // app.refresh_all();
-                            // app.set_metadata();
+                        }
+                        KeyCode::Char('y') => {
+                            // yank stuff
                         }
                         KeyCode::Backspace => {
                             app.toggle_hidden_files();
@@ -415,6 +440,29 @@ fn run_app<B: Backend>(
                                     if app.input.drain(..).collect::<String>().eq("dD") {
                                         app.input_mode = InputMode::Normal;
                                         app.delete_file()
+                                    }
+                                }
+                                'd' => {
+                                    if app.input.drain(..).collect::<String>().eq("dd") {
+                                        // app.input_mode = InputMode::Normal;
+                                        app.yank_file()
+                                    }
+                                }
+                                'y' => {
+                                    if app.input.drain(..).collect::<String>().eq("yy") {
+                                        // app.input_mode = InputMode::Normal;
+                                        app.yank_file()
+                                    }
+                                }
+                                'p' => {
+                                    let input = app.input.drain(..).collect::<String>();
+                                    // are these checks necessary?
+                                    if input.eq("yyp") {
+                                        app.input_mode = InputMode::Normal;
+                                        app.paste_yanked_file();
+                                    } else if input.eq("ddp") {
+                                        app.input_mode = InputMode::Normal;
+                                        app.paste_moved_file();
                                     }
                                 }
                                 _ => {}
