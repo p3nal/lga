@@ -8,6 +8,7 @@ currently working commands:
  - yy: yank
  - dd: move
  - p: paste
+
 todo:
  - rename
  - bulkrename maybe?
