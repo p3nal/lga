@@ -1,12 +1,12 @@
+mod ui;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use file_format::{FileFormat, Kind};
+use file_format::FileFormat;
 use std::{
     env,
-    ffi::OsStr,
     fs::{self, remove_dir, remove_dir_all, remove_file},
     io,
     path::{Path, PathBuf},
@@ -15,10 +15,8 @@ use std::{
 };
 use tui::{
     backend::{Backend, CrosstermBackend},
-    layout::{Alignment, Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
-    Frame, Terminal,
+    widgets::ListState,
+    Terminal,
 };
 
 struct StatefulList<T> {
@@ -60,7 +58,7 @@ enum InputMode {
     Editing,
 }
 
-struct App {
+pub struct App {
     left_column: Vec<PathBuf>,
     middle_column: StatefulList<PathBuf>,
     right_column: Vec<PathBuf>,
@@ -332,7 +330,7 @@ fn run_app<B: Backend>(
 ) -> io::Result<()> {
     let last_tick = Instant::now();
     loop {
-        terminal.draw(|f| ui(f, &mut app))?;
+        terminal.draw(|f| ui::ui(f, &mut app))?;
 
         let timeout = tick_rate
             .checked_sub(last_tick.elapsed())
@@ -431,95 +429,3 @@ fn run_app<B: Backend>(
     }
 }
 
-fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
-    let vertical_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(97), Constraint::Percentage(3)].as_ref())
-        .split(frame.size());
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints(
-            [
-                Constraint::Percentage(30),
-                Constraint::Percentage(40),
-                Constraint::Percentage(30),
-            ]
-            .as_ref(),
-        )
-        .split(vertical_chunks[0]);
-    // Create a block...
-    let left_column_list: Vec<ListItem> = app
-        .left_column
-        .iter()
-        .map(|item| ListItem::new(item.file_name().unwrap().to_str().unwrap()))
-        .collect();
-
-    let middle_column_list: Vec<ListItem> = app
-        .middle_column
-        .items
-        .iter()
-        .map(|item| {
-            if item.is_dir() {
-                ListItem::new(item.file_name().unwrap().to_str().unwrap())
-                    .style(Style::default().fg(Color::LightGreen))
-            } else {
-                ListItem::new(item.file_name().unwrap().to_str().unwrap())
-                    .style(Style::default().fg(Color::Gray))
-            }
-        })
-        .collect();
-
-    let right_column_list: Vec<ListItem> = app
-        .right_column
-        .iter()
-        .map(|item| ListItem::new(item.file_name().unwrap().to_str().unwrap()))
-        .collect();
-
-    let left_block = List::new(left_column_list)
-        .block(Block::default().title("Parent").borders(Borders::ALL))
-        .style(Style::default().fg(Color::Blue))
-        .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
-        .highlight_symbol(">>");
-
-    let middle_block = List::new(middle_column_list)
-        .block(
-            Block::default()
-                .title(
-                    app.pwd
-                        .file_name()
-                        .unwrap_or(OsStr::new("/"))
-                        .to_str()
-                        .unwrap(),
-                )
-                .borders(Borders::ALL),
-        )
-        .style(Style::default().fg(Color::White))
-        .highlight_style(
-            Style::default()
-                .bg(Color::LightGreen)
-                .fg(Color::Black)
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol(" ");
-
-    let right_block = List::new(right_column_list)
-        .block(Block::default().title("Child").borders(Borders::ALL))
-        .style(Style::default().fg(Color::Red))
-        .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
-        .highlight_symbol(">>");
-
-    let metadata = Paragraph::new(app.metadata.as_ref())
-        .alignment(Alignment::Right)
-        .block(Block::default().borders(Borders::RIGHT));
-
-    let message = Paragraph::new(app.message.as_ref())
-        .alignment(Alignment::Left)
-        .block(Block::default().borders(Borders::LEFT));
-
-    // Render into chunks of the layout.
-    frame.render_widget(left_block, chunks[0]);
-    frame.render_stateful_widget(middle_block, chunks[1], &mut app.middle_column.state);
-    frame.render_widget(right_block, chunks[2]);
-    frame.render_widget(metadata, vertical_chunks[1]);
-    frame.render_widget(message, vertical_chunks[1]);
-}
