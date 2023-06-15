@@ -7,3 +7,9 @@ currently working commands:
  - backspace: toggle show hidden files
  - yy: yank
  - p: paste
+todo:
+ - moving
+ - rename
+ - bulkrename maybe?
+ - touch and mkdir
+ - tagging
