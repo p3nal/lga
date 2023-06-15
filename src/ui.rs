@@ -4,14 +4,21 @@ use tui::{
     backend::Backend,
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
-    Frame
+    widgets::{Block, BorderType, Borders, List, ListItem, Paragraph},
+    Frame,
 };
 
 pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
     let vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(97), Constraint::Percentage(3)].as_ref())
+        .constraints(
+            [
+                Constraint::Percentage(3),
+                Constraint::Percentage(96),
+                Constraint::Percentage(1),
+            ]
+            .as_ref(),
+        )
         .split(frame.size());
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -23,7 +30,7 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
             ]
             .as_ref(),
         )
-        .split(vertical_chunks[0]);
+        .split(vertical_chunks[1]);
     // Create a block...
     let left_column_list: Vec<ListItem> = app
         .left_column
@@ -53,7 +60,7 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
         .collect();
 
     let left_block = List::new(left_column_list)
-        .block(Block::default().title("Parent").borders(Borders::ALL))
+        .block(Block::default()./*title("Parent").*/borders(Borders::ALL).border_type(BorderType::Rounded))
         .style(Style::default().fg(Color::Blue))
         .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
         .highlight_symbol(">>");
@@ -61,14 +68,15 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
     let middle_block = List::new(middle_column_list)
         .block(
             Block::default()
-                .title(
-                    app.pwd
-                        .file_name()
-                        .unwrap_or(OsStr::new("/"))
-                        .to_str()
-                        .unwrap(),
-                )
-                .borders(Borders::ALL),
+                // .title(
+                //     app.pwd
+                //         .file_name()
+                //         .unwrap_or(OsStr::new("/"))
+                //         .to_str()
+                //         .unwrap(),
+                // )
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded),
         )
         .style(Style::default().fg(Color::White))
         .highlight_style(
@@ -80,23 +88,39 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
         .highlight_symbol(" ");
 
     let right_block = List::new(right_column_list)
-        .block(Block::default().title("Child").borders(Borders::ALL))
+        .block(
+            Block::default() /* .title("Child") */
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded),
+        )
         .style(Style::default().fg(Color::Red))
         .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
         .highlight_symbol(">>");
 
-    let metadata = Paragraph::new(app.metadata.as_ref())
-        .alignment(Alignment::Right)
-        .block(Block::default().borders(Borders::RIGHT));
+    // header
+    let header = app
+        .middle_column
+        .items
+        .get(app.middle_column.state.selected().unwrap_or(0))
+        .unwrap()
+        .display()
+        .to_string();
+    let header = Paragraph::new(header)
+        .style(Style::default().fg(Color::Magenta))
+        .alignment(Alignment::Left);
 
-    let message = Paragraph::new(app.message.as_ref())
-        .alignment(Alignment::Left)
-        .block(Block::default().borders(Borders::LEFT));
+    // footer(s)
+    let metadata = Paragraph::new(app.metadata.as_ref()).alignment(Alignment::Right);
+    // .block(Block::default().borders(Borders::RIGHT));
+
+    let message = Paragraph::new(app.message.as_ref()).alignment(Alignment::Left);
+    // .block(Block::default().borders(Borders::LEFT));
 
     // Render into chunks of the layout.
+    frame.render_widget(header, vertical_chunks[0]);
     frame.render_widget(left_block, chunks[0]);
     frame.render_stateful_widget(middle_block, chunks[1], &mut app.middle_column.state);
     frame.render_widget(right_block, chunks[2]);
-    frame.render_widget(metadata, vertical_chunks[1]);
-    frame.render_widget(message, vertical_chunks[1]);
+    frame.render_widget(metadata, vertical_chunks[2]);
+    frame.render_widget(message, vertical_chunks[2]);
 }

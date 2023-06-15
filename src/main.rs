@@ -106,6 +106,11 @@ impl App {
         match self.middle_column.items.get(selected) {
             Some(selected) => {
                 if selected.is_dir() {
+                    // check if directory is empty before proceeding
+                    if selected.read_dir().unwrap().next().is_none() {
+                        self.set_message("directory empty");
+                        return
+                    }
                     self.pwd = selected.to_path_buf();
                     self.left_column = self.middle_column.items.to_owned();
                     self.middle_column.items = self.right_column.to_owned();
@@ -363,6 +368,7 @@ fn run_app<B: Backend>(
                             // go left
                             app.go_left();
                             app.set_metadata();
+                            app.set_message("");
                         }
                         KeyCode::Char('g') => {
                             // go to the beginning
