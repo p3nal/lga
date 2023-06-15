@@ -7,10 +7,10 @@ use crossterm::{
 use file_format::{FileFormat, Kind};
 use std::{
     env,
-    fs::{self, remove_dir, remove_dir_all, remove_file},
+    fs::{self, copy, remove_dir, remove_dir_all, remove_file},
     io,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
     time::{Duration, Instant},
 };
 use tui::{
@@ -105,14 +105,13 @@ impl App {
     }
 
     fn go_right(&mut self) {
-        let selected = self.middle_column.state.selected().unwrap_or(0);
-        match self.middle_column.items.get(selected) {
+        match self.get_selected() {
             Some(selected) => {
                 if selected.is_dir() {
                     // check if directory is empty before proceeding
                     if selected.read_dir().unwrap().next().is_none() {
                         self.set_message("directory empty");
-                        return
+                        return;
                     }
                     self.pwd = selected.to_path_buf();
                     self.left_column = self.middle_column.items.to_owned();
@@ -129,31 +128,32 @@ impl App {
                 } else if selected.is_file() {
                     // i should probably use kind
                     match FileFormat::from_file(selected).unwrap().kind() {
+                        // TODO fix these, read the programs from a config file
                         Kind::Book | Kind::Document => {
-                            // fixme, obviously
                             Command::new("/usr/bin/zathura")
                                 .arg(selected.as_path())
+                                .stderr(Stdio::null())
                                 .spawn()
                                 .expect("failed to exec");
                         }
                         Kind::Text => {
-                            // fixme, obviously
                             Command::new("/usr/bin/nvim")
                                 .arg(selected.as_path())
+                                .stderr(Stdio::null())
                                 .spawn()
                                 .expect("failed to exec");
                         }
                         Kind::Image => {
-                            // fixme, obviously
                             Command::new("/usr/bin/sxiv")
                                 .arg(selected.as_path())
+                                .stderr(Stdio::null())
                                 .spawn()
                                 .expect("failed to exec");
                         }
                         Kind::Video => {
-                            // fixme, obviously
                             Command::new("/usr/bin/vlc")
                                 .arg(selected.as_path())
+                                .stderr(Stdio::null())
                                 .spawn()
                                 .expect("failed to exec");
                         }
@@ -263,7 +263,6 @@ impl App {
     }
 
     fn execute(&mut self) {
-        self.input_mode = InputMode::Normal;
         let command = self.input.drain(..).collect::<String>();
         match command.as_str() {
             _ => {}
@@ -272,20 +271,36 @@ impl App {
 
     // TODO gotta use this more
     fn get_selected(&self) -> Option<&PathBuf> {
-        self.middle_column.items.get(self.middle_column.state.selected().unwrap_or(0))
+        self.middle_column
+            .items
+            .get(self.middle_column.state.selected().unwrap_or(0))
     }
 
     fn yank_file(&mut self) {
-        self.register = self.get_selected().unwrap().to_path_buf();
+        let selected = self.get_selected().unwrap();
+        if selected.is_file() {
+            self.register = selected.to_path_buf();
+            self.set_message("yanked file, type p to paste");
+        } else {
+            self.set_message("not a file")
+        }
     }
 
     fn paste_moved_file(&mut self) {
         let file = &self.register;
 
+        self.register = PathBuf::new();
     }
 
     fn paste_yanked_file(&mut self) {
-        todo!()
+        let file = &self.register;
+        let pwd = &self.pwd;
+        match copy(file, pwd) {
+            Ok(_) => self.set_message("pasted!"),
+            // might wanna verbalise those
+            Err(_) => self.set_message("something went wrong while pasting"),
+        };
+        self.register = PathBuf::new();
     }
 }
 
@@ -420,6 +435,8 @@ fn run_app<B: Backend>(
                         }
                         KeyCode::Char('y') => {
                             // yank stuff
+                            app.input_mode = InputMode::Editing;
+                            app.input.push('y');
                         }
                         KeyCode::Backspace => {
                             app.toggle_hidden_files();
@@ -431,7 +448,52 @@ fn run_app<B: Backend>(
                     InputMode::Editing => match key.code {
                         KeyCode::Enter => {
                             // execute the command somehow
+                            app.input_mode = InputMode::Normal;
                             app.execute();
+                        }
+                        KeyCode::Char('q') => return Ok(()),
+                        KeyCode::Char('l') => {
+                            // go right
+                            app.go_right();
+                            app.set_metadata();
+                        }
+                        KeyCode::Char('k') => {
+                            // go up
+                            app.middle_column.prev();
+                            app.refresh_right_column();
+                            app.set_metadata();
+                            app.set_message("");
+                        }
+                        KeyCode::Char('j') => {
+                            // go down
+                            app.middle_column.next();
+                            app.refresh_right_column();
+                            app.set_metadata();
+                            app.set_message("");
+                        }
+                        KeyCode::Char('h') => {
+                            // go left
+                            app.go_left();
+                            app.set_metadata();
+                            app.set_message("");
+                        }
+                        KeyCode::Char('g') => {
+                            // go to the beginning
+                            app.middle_column.state.select(Some(0));
+                            app.refresh_middle_column();
+                            app.refresh_right_column();
+                            app.set_metadata();
+                            app.set_message("");
+                        }
+                        KeyCode::Char('G') => {
+                            // go to the end
+                            app.middle_column
+                                .state
+                                .select(Some(app.middle_column.items.len() - 1));
+                            app.refresh_middle_column();
+                            app.refresh_right_column();
+                            app.set_metadata();
+                            app.set_message("");
                         }
                         KeyCode::Char(c) => {
                             app.input.push(c);
@@ -482,4 +544,3 @@ fn run_app<B: Backend>(
         }
     }
 }
-
