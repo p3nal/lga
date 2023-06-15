@@ -6,9 +6,9 @@ currently working commands:
  - dD: deletes a file or an empty dir
  - backspace: toggle show hidden files
  - yy: yank
+ - dd: move
  - p: paste
 todo:
- - moving
  - rename
  - bulkrename maybe?
  - touch and mkdir

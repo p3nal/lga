@@ -7,7 +7,7 @@ use crossterm::{
 use file_format::{FileFormat, Kind};
 use std::{
     env::{self, join_paths},
-    fs::{self, copy, remove_dir, remove_dir_all, remove_file},
+    fs::{self, copy, remove_dir, remove_dir_all, remove_file, rename},
     io,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -278,22 +278,42 @@ impl App {
         let selected = self.get_selected().unwrap();
         if selected.is_file() {
             self.register = selected.to_path_buf();
-            self.set_message("yanked file, type p to paste");
+            self.set_message("file in register, type p to paste");
         } else {
             self.set_message("not a file")
         }
     }
 
     fn paste_moved_file(&mut self) {
-        let file = &self.register;
-
+        let src = &self.register;
+        let dst = PathBuf::new()
+            .join(&self.pwd)
+            .join(src.file_name().unwrap());
+        match copy(src, dst) {
+            Ok(_) => {
+                match remove_file(src) {
+                    Ok(_) => self.set_message("deleted src, file moved!"),
+                    Err(_) => {
+                        self.set_message("something went wrong while moving")
+                    }
+                };
+                // self.set_message("moved!")
+            }
+            // might wanna verbalise those
+            Err(_) => {
+                self.set_message("something went wrong while moving")
+            }
+        };
         self.register = PathBuf::new();
+        self.refresh_middle_column();
     }
 
     fn paste_yanked_file(&mut self) {
-        let file = &self.register;
-        let pwd = PathBuf::new().join(&self.pwd).join(file.file_name().unwrap());
-        match copy(file, pwd) {
+        let src = &self.register;
+        let dst = PathBuf::new()
+            .join(&self.pwd)
+            .join(src.file_name().unwrap());
+        match copy(src, dst) {
             Ok(_) => self.set_message("pasted!"),
             // might wanna verbalise those
             Err(_) => self.set_message("something went wrong while pasting"),
