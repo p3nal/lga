@@ -6,7 +6,7 @@ use crossterm::{
 };
 use file_format::{FileFormat, Kind};
 use std::{
-    env,
+    env::{self, join_paths},
     fs::{self, copy, remove_dir, remove_dir_all, remove_file},
     io,
     path::{Path, PathBuf},
@@ -294,13 +294,14 @@ impl App {
 
     fn paste_yanked_file(&mut self) {
         let file = &self.register;
-        let pwd = &self.pwd;
+        let pwd = PathBuf::new().join(&self.pwd).join(file.file_name().unwrap());
         match copy(file, pwd) {
             Ok(_) => self.set_message("pasted!"),
             // might wanna verbalise those
             Err(_) => self.set_message("something went wrong while pasting"),
         };
         self.register = PathBuf::new();
+        self.refresh_middle_column();
     }
 }
 
@@ -505,13 +506,13 @@ fn run_app<B: Backend>(
                                     }
                                 }
                                 'd' => {
-                                    if app.input.drain(..).collect::<String>().eq("dd") {
+                                    if app.input.eq("dd") {
                                         // app.input_mode = InputMode::Normal;
                                         app.yank_file()
                                     }
                                 }
                                 'y' => {
-                                    if app.input.drain(..).collect::<String>().eq("yy") {
+                                    if app.input.eq("yy") {
                                         // app.input_mode = InputMode::Normal;
                                         app.yank_file()
                                     }
