@@ -184,8 +184,7 @@ impl App {
     }
 
     fn refresh_right_column(&mut self) {
-        let selected = self.middle_column.state.selected().unwrap();
-        match self.middle_column.items.get(selected) {
+        match self.get_selected() {
             Some(selected) => {
                 let path = selected.as_path();
                 if selected.is_dir() {
@@ -237,8 +236,7 @@ impl App {
     // there, then just before the app closes we can issue a delete...
     // although this may make exiting a bit slower i recon... anyway
     fn delete_file(&mut self) {
-        let selected = self.middle_column.state.selected().unwrap();
-        match self.middle_column.items.get(selected) {
+        match self.get_selected() {
             Some(selected) => {
                 let path = selected.as_path();
                 if selected.is_dir() {
