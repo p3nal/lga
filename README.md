@@ -11,10 +11,11 @@ currently working commands:
  - a: rename
  - `:touch`: touch file
  - `:mkdir`: mkdir dir
+ - sn: sort by name
+ - sm: sort by date modified
 
 todo:
  - previews (at least for text files)
  - selecting multiple items (visual mode)
- - sorting
  - bulkrename maybe?
  - tagging

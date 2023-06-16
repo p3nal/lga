@@ -103,7 +103,6 @@ pub struct App {
     message: String,
     metadata: String,
     /// Current value of the input command
-    input: String,
     /// Current input mode
     input_mode: InputMode,
     // register for yanking and moving
@@ -135,7 +134,6 @@ impl App {
             message: String::new(),
             metadata: String::new(),
             input_mode: InputMode::Normal,
-            input: String::new(),
             register: PathBuf::new(),
         }
     }
@@ -450,6 +448,24 @@ impl App {
         };
         self.register = PathBuf::new();
     }
+
+    // careful this only sorts the cwd for now, and forgets about it once its
+    // gone out of view
+    fn sort_by(&mut self, by: char) {
+        match by {
+            // name
+            'n' => self.middle_column.items.sort(),
+            // modified
+            'm' => self.middle_column.items.sort_by(|a, b| {
+                a.metadata()
+                    .unwrap()
+                    .modified()
+                    .unwrap()
+                    .partial_cmp(&b.metadata().unwrap().modified().unwrap()).unwrap()
+            }),
+            _ => {}
+        }
+    }
 }
 
 fn get_item_index(item: &Path, items: &Vec<PathBuf>) -> Option<usize> {
@@ -587,10 +603,16 @@ fn run_app<B: Backend>(
                             app.set_message("type y to yank");
                             app.input_mode = InputMode::Command("y".to_string());
                         }
+                        KeyCode::Char('s') => {
+                            // sort
+                            app.set_message(
+                                "sort by name [n], modified date [m], dunno what else (todo)",
+                            );
+                            app.input_mode = InputMode::Command("s".to_string());
+                        }
                         KeyCode::Char('a') => match app.get_selected() {
                             Some(selected) => {
                                 let selected = selected.file_name().unwrap().to_str().unwrap();
-                                // app.input = format!(":rename {selected}");
                                 app.input_mode = InputMode::Input(format!(":rename {selected}"));
                                 app.set_message(app.input_mode.get_str());
                             }
@@ -599,9 +621,8 @@ fn run_app<B: Backend>(
                             }
                         },
                         KeyCode::Char(':') => {
-                            app.input = ":".to_string();
-                            app.set_message(app.input.clone());
                             app.input_mode = InputMode::Input(":".to_string());
+                            app.set_message(app.input_mode.get_str());
                         }
                         KeyCode::Backspace => {
                             app.toggle_hidden_files();
@@ -675,6 +696,16 @@ fn run_app<B: Backend>(
                                 "yyp" => {
                                     app.input_mode = InputMode::Normal;
                                     app.paste_yanked_file();
+                                }
+                                "sn" => {
+                                    // sort by name
+                                    app.input_mode = InputMode::Normal;
+                                    app.sort_by('n');
+                                }
+                                "sm" => {
+                                    // sort by name
+                                    app.input_mode = InputMode::Normal;
+                                    app.sort_by('m');
                                 }
                                 _ => {
                                     app.input_mode = InputMode::Normal;
