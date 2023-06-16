@@ -65,6 +65,9 @@ enum InputMode {
     // input mode: navigation doesnt work, all input gets buffered until enter
     // or esc is clicked
     Input,
+    // confirmation mode for y/n confirmations, call it with the input already
+    // filled
+    Confirmation,
 }
 
 pub struct App {
@@ -119,10 +122,6 @@ impl App {
                 if selected.is_dir() {
                     let empty = selected.read_dir().unwrap().next().is_none();
                     // check if directory is empty before proceeding
-                    // if selected.read_dir().unwrap().next().is_none() {
-                    //     self.set_message("directory empty");
-                    //     return;
-                    // }
                     self.pwd = selected.to_path_buf();
                     self.left_column = self.middle_column.items.to_owned();
                     self.middle_column.items = self.right_column.to_owned();
@@ -264,17 +263,26 @@ impl App {
                 let src = self.get_selected().unwrap();
                 let dst = PathBuf::new().join(&self.pwd).join(command.1);
                 match rename(src, dst) {
-                    Ok(_) => self.set_message("renamed file"),
+                    Ok(_) => {
+                        self.set_message("renamed file");
+                        self.refresh_middle_column();
+                    }
                     Err(_) => {
                         self.set_message("something went wrong while renaming");
                     }
                 }
             }
+            // todo implement selecting things once created
             ":touch" => {
                 let dst = PathBuf::new().join(&self.pwd).join(command.1);
                 if !Path::exists(&dst) {
-                    match File::create(dst) {
-                        Ok(_) => self.set_message("file created"),
+                    match File::create(&dst) {
+                        Ok(_) => {
+                            self.set_message("file created");
+                            self.refresh_middle_column();
+                            let index = get_item_index(&dst, &self.middle_column.items);
+                            self.middle_column.state.select(index);
+                        }
                         Err(_) => self.set_message("error creating file"),
                     };
                 } else {
@@ -285,7 +293,10 @@ impl App {
                 let dst = PathBuf::new().join(&self.pwd).join(command.1);
                 if !Path::exists(&dst) {
                     match create_dir(dst) {
-                        Ok(_) => self.set_message("directory created"),
+                        Ok(_) => {
+                            self.set_message("directory created");
+                            self.refresh_middle_column();
+                        }
                         Err(_) => self.set_message("error creating directory"),
                     };
                 } else {
@@ -298,30 +309,42 @@ impl App {
                 self.set_message("i traveled the earth to find your command and couldnt find it")
             }
         }
-        self.refresh_middle_column();
     }
+
+    fn confirm(&mut self) {}
 
     // a good thing to do is to make a trash folder and collect stuff to delete
     // there, then just before the app closes we can issue a delete...
     // although this may make exiting a bit slower i recon... anyway
     fn delete_file(&mut self) {
+        // todo after deleting, select something else if dir isnt empty
         match self.get_selected() {
             Some(selected) => {
                 let path = selected.as_path();
                 if selected.is_dir() {
-                    // this should require confirmation or something like damn bro
+                    // check if empty
+                    match selected.read_dir().unwrap().next().is_none() {
+                        true => {
+                            match remove_dir(path) {
+                                Ok(_) => self.set_message("deleted empty dir"),
+                                Err(_) => self.set_message("wont delete"),
+                            };
+                        }
+                        false => {
+                            // todo
+                            self.input = "deletedir".to_string();
+                            self.input_mode = InputMode::Confirmation;
+                            self.set_message("are you sure you want to delete this folder and all of its contents? [y/n]")
+                        }
+                    }
                     // remove_dir_all(path)
-                    match remove_dir(path) {
-                        Ok(_) => self.set_message("deleted"),
-                        Err(_) => self.set_message("wont delete"),
-                    };
                 } else if selected.is_file() {
-                    // this should require confirmation or something like damn bro
                     match remove_file(path) {
-                        Ok(_) => self.set_message("deleted"),
+                        Ok(_) => self.set_message("deleted file"),
                         Err(_) => self.set_message("wont delete"),
                     };
-                    // self.set_message("are you sure you want to do this");
+                } else {
+                    self.set_message("this type of files hasn't been handled yet")
                 }
                 self.refresh_middle_column();
             }
@@ -517,34 +540,31 @@ fn run_app<B: Backend>(
                         }
                         KeyCode::Char('d') => {
                             // implement deleting stuff
-                            app.input_mode = InputMode::Command;
                             app.input.push('d');
-                            app.set_message("type D to delete or d to move")
+                            app.set_message("type D to delete or d to move");
+                            app.input_mode = InputMode::Command;
                         }
                         KeyCode::Char('y') => {
                             // yank stuff
-                            app.input_mode = InputMode::Command;
                             app.input.push('y');
-                            app.set_message("type y to yank")
+                            app.set_message("type y to yank");
+                            app.input_mode = InputMode::Command;
                         }
-                        KeyCode::Char('a') => {
-                            app.input_mode = InputMode::Input;
-                            match app.get_selected() {
-                                Some(selected) => {
-                                    let selected = selected.file_name().unwrap().to_str().unwrap();
-                                    app.input = format!(":rename {selected}");
-                                    app.set_message(app.input.clone())
-                                }
-                                None => {
-                                    app.set_message("nothing is selected");
-                                    app.input_mode = InputMode::Normal;
-                                }
+                        KeyCode::Char('a') => match app.get_selected() {
+                            Some(selected) => {
+                                let selected = selected.file_name().unwrap().to_str().unwrap();
+                                app.input = format!(":rename {selected}");
+                                app.set_message(app.input.clone());
+                                app.input_mode = InputMode::Input;
                             }
-                        }
+                            None => {
+                                app.set_message("nothing is selected");
+                            }
+                        },
                         KeyCode::Char(':') => {
-                            app.input_mode = InputMode::Input;
                             app.input = ":".to_string();
-                            app.set_message(app.input.clone())
+                            app.set_message(app.input.clone());
+                            app.input_mode = InputMode::Input;
                         }
                         KeyCode::Backspace => {
                             app.toggle_hidden_files();
@@ -603,21 +623,27 @@ fn run_app<B: Backend>(
                             match c {
                                 'D' => {
                                     if app.input.drain(..).collect::<String>().eq("dD") {
-                                        app.input_mode = InputMode::Normal;
                                         app.delete_file()
+                                    } else {
+                                        app.set_message("command not found")
                                     }
+                                    app.input_mode = InputMode::Normal;
                                 }
                                 'd' => {
                                     if app.input.eq("dd") {
-                                        // app.input_mode = InputMode::Normal;
                                         app.yank_file()
+                                    } else {
+                                        app.set_message("command not found")
                                     }
+                                    app.input_mode = InputMode::Normal;
                                 }
                                 'y' => {
                                     if app.input.eq("yy") {
-                                        // app.input_mode = InputMode::Normal;
                                         app.yank_file()
+                                    } else {
+                                        app.set_message("command not found")
                                     }
+                                    app.input_mode = InputMode::Normal;
                                 }
                                 'p' => {
                                     let input = app.input.drain(..).collect::<String>();
@@ -638,6 +664,11 @@ fn run_app<B: Backend>(
                         KeyCode::Esc => {
                             app.input_mode = InputMode::Normal;
                             app.set_message("canceled");
+                        }
+                        KeyCode::Backspace => {
+                            app.toggle_hidden_files();
+                            app.refresh_all();
+                            app.set_metadata();
                         }
                         _ => {}
                     },
@@ -661,6 +692,16 @@ fn run_app<B: Backend>(
                             app.set_message("canceled");
                         }
                         _ => {}
+                    },
+                    InputMode::Confirmation => match key.code {
+                        KeyCode::Char('y') => {
+                            app.confirm();
+                            app.input_mode = InputMode::Normal;
+                        }
+                        _ => {
+                            app.input_mode = InputMode::Normal;
+                            app.set_message("aborted");
+                        }
                     },
                 }
             }
