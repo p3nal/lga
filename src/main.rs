@@ -57,17 +57,41 @@ impl<T> StatefulList<T> {
     }
 }
 
+enum Confirm {
+    DeleteFolder,
+}
+
 enum InputMode {
     // normal mode for navigation and all
     Normal,
     // command mode for issuing short commands, navigation still works
-    Command,
+    Command(String),
     // input mode: navigation doesnt work, all input gets buffered until enter
     // or esc is clicked
-    Input,
+    Input(String),
     // confirmation mode for y/n confirmations, call it with the input already
     // filled
-    Confirmation,
+    Confirmation(Confirm),
+}
+impl InputMode {
+    fn push(&mut self, c: char) {
+        match self {
+            InputMode::Command(s) | InputMode::Input(s) => s.push(c),
+            _ => {}
+        }
+    }
+    fn pop(&mut self) -> Option<char> {
+        match self {
+            InputMode::Command(s) | InputMode::Input(s) => s.pop(),
+            _ => None,
+        }
+    }
+    fn get_str(&self) -> String {
+        match self {
+            InputMode::Command(s) | InputMode::Input(s) => s.to_string(),
+            _ => String::new(),
+        }
+    }
 }
 
 pub struct App {
@@ -256,7 +280,7 @@ impl App {
     }
 
     fn execute(&mut self) {
-        let command = self.input.drain(..).collect::<String>();
+        let command = self.input_mode.get_str();
         let command = command.split_once(' ').unwrap_or(("", ""));
         match command.0 {
             ":rename" => {
@@ -312,8 +336,8 @@ impl App {
     }
 
     fn confirm(&mut self) {
-        match self.input.as_str() {
-            "deletedir" => match self.get_selected() {
+        match self.input_mode {
+            InputMode::Confirmation(Confirm::DeleteFolder) => match self.get_selected() {
                 Some(selected) => {
                     // delete all
                     match remove_dir_all(selected.as_path()) {
@@ -348,9 +372,8 @@ impl App {
                             };
                         }
                         false => {
-                            // this sucks
-                            self.input = "deletedir".to_string();
-                            self.input_mode = InputMode::Confirmation;
+                            // this sucks less ig
+                            self.input_mode = InputMode::Confirmation(Confirm::DeleteFolder);
                             self.set_message("are you sure you want to delete this folder and all of its contents? [y/n]")
                         }
                     }
@@ -556,22 +579,20 @@ fn run_app<B: Backend>(
                         }
                         KeyCode::Char('d') => {
                             // implement deleting stuff
-                            app.input.push('d');
                             app.set_message("type D to delete or d to move");
-                            app.input_mode = InputMode::Command;
+                            app.input_mode = InputMode::Command("d".to_string());
                         }
                         KeyCode::Char('y') => {
                             // yank stuff
-                            app.input.push('y');
                             app.set_message("type y to yank");
-                            app.input_mode = InputMode::Command;
+                            app.input_mode = InputMode::Command("y".to_string());
                         }
                         KeyCode::Char('a') => match app.get_selected() {
                             Some(selected) => {
                                 let selected = selected.file_name().unwrap().to_str().unwrap();
-                                app.input = format!(":rename {selected}");
-                                app.set_message(app.input.clone());
-                                app.input_mode = InputMode::Input;
+                                // app.input = format!(":rename {selected}");
+                                app.input_mode = InputMode::Input(format!(":rename {selected}"));
+                                app.set_message(app.input_mode.get_str());
                             }
                             None => {
                                 app.set_message("nothing is selected");
@@ -580,7 +601,7 @@ fn run_app<B: Backend>(
                         KeyCode::Char(':') => {
                             app.input = ":".to_string();
                             app.set_message(app.input.clone());
-                            app.input_mode = InputMode::Input;
+                            app.input_mode = InputMode::Input(":".to_string());
                         }
                         KeyCode::Backspace => {
                             app.toggle_hidden_files();
@@ -589,7 +610,7 @@ fn run_app<B: Backend>(
                         }
                         _ => {}
                     },
-                    InputMode::Command => match key.code {
+                    InputMode::Command(ref mut command) => match key.code {
                         KeyCode::Char('q') => return Ok(()),
                         KeyCode::Char('l') => {
                             // go right
@@ -640,46 +661,24 @@ fn run_app<B: Backend>(
                             app.set_metadata();
                         }
                         KeyCode::Char(c) => {
-                            app.input.push(c);
-                            match c {
-                                'D' => {
+                            command.push(c);
+                            match command.as_str() {
+                                "dD" => {
                                     app.input_mode = InputMode::Normal;
-                                    if app.input.drain(..).collect::<String>().eq("dD") {
-                                        app.delete_file()
-                                    } else {
-                                        app.set_message("command not found")
-                                    }
+                                    app.delete_file();
                                 }
-                                'd' => {
-                                    if app.input.eq("dd") {
-                                        app.yank_file()
-                                    } else {
-                                        app.set_message("command not found");
-                                        app.input_mode = InputMode::Normal;
-                                    }
-                                }
-                                'y' => {
-                                    if app.input.eq("yy") {
-                                        app.yank_file()
-                                    } else {
-                                        app.set_message("command not found");
-                                        app.input_mode = InputMode::Normal;
-                                    }
-                                }
-                                'p' => {
-                                    let input = app.input.drain(..).collect::<String>();
-                                    if input.eq("yyp") {
-                                        app.paste_yanked_file();
-                                    } else if input.eq("ddp") {
-                                        app.paste_moved_file();
-                                    } else {
-                                        app.set_message("command not found");
-                                    }
+                                "dd" | "yy" => app.yank_file(),
+                                "ddp" => {
                                     app.input_mode = InputMode::Normal;
+                                    app.paste_moved_file();
+                                }
+                                "yyp" => {
+                                    app.input_mode = InputMode::Normal;
+                                    app.paste_yanked_file();
                                 }
                                 _ => {
-                                    app.set_message("command not found");
                                     app.input_mode = InputMode::Normal;
+                                    app.set_message("command not found");
                                 }
                             }
                         }
@@ -689,10 +688,10 @@ fn run_app<B: Backend>(
                         }
                         _ => {}
                     },
-                    InputMode::Input => match key.code {
+                    InputMode::Input(_) => match key.code {
                         KeyCode::Char(c) => {
-                            app.input.push(c);
-                            app.set_message(app.input.clone())
+                            app.input_mode.push(c);
+                            app.set_message(app.input_mode.get_str())
                         }
                         KeyCode::Enter => {
                             // execute the command somehow
@@ -700,8 +699,8 @@ fn run_app<B: Backend>(
                             app.input_mode = InputMode::Normal;
                         }
                         KeyCode::Backspace => {
-                            app.input.pop();
-                            app.set_message(app.input.clone())
+                            app.input_mode.pop();
+                            app.set_message(app.input_mode.get_str())
                         }
 
                         KeyCode::Esc => {
@@ -710,7 +709,7 @@ fn run_app<B: Backend>(
                         }
                         _ => {}
                     },
-                    InputMode::Confirmation => match key.code {
+                    InputMode::Confirmation(_) => match key.code {
                         KeyCode::Char('y') => {
                             app.confirm();
                             app.input_mode = InputMode::Normal;
