@@ -23,8 +23,8 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
         .direction(Direction::Horizontal)
         .constraints(
             [
-                Constraint::Percentage(30),
-                Constraint::Percentage(40),
+                Constraint::Percentage(20),
+                Constraint::Percentage(50),
                 Constraint::Percentage(30),
             ]
             .as_ref(),
