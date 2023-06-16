@@ -8,9 +8,9 @@ currently working commands:
  - yy: yank
  - dd: move
  - p: paste
+ - a: rename
 
 todo:
- - rename
  - bulkrename maybe?
  - touch and mkdir
  - tagging

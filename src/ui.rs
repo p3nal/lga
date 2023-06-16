@@ -1,5 +1,4 @@
 use crate::App;
-use std::ffi::OsStr;
 use tui::{
     backend::Backend,
     layout::{Alignment, Constraint, Direction, Layout},

@@ -54,8 +54,13 @@ impl<T> StatefulList<T> {
 }
 
 enum InputMode {
+    // normal mode for navigation and all
     Normal,
-    Editing,
+    // command mode for issuing short commands, navigation still works
+    Command,
+    // input mode: navigation doesnt work, all input gets buffered until enter
+    // or esc is clicked
+    Input,
 }
 
 pub struct App {
@@ -262,9 +267,23 @@ impl App {
 
     fn execute(&mut self) {
         let command = self.input.drain(..).collect::<String>();
-        match command.as_str() {
+        let command = command.split_once(' ').unwrap_or(("", ""));
+        match command.0 {
+            ":rename" => {
+                let src = self.get_selected().unwrap();
+                let dst = PathBuf::new()
+                    .join(&self.pwd)
+                    .join(command.1);
+                match rename(src, dst) {
+                    Ok(_) => self.set_message("renamed file"),
+                    Err(_) => {
+                        self.set_message("something went wrong while renaming");
+                    }
+                }
+            }
             _ => {}
         }
+        self.refresh_middle_column();
     }
 
     // TODO gotta use this more
@@ -293,16 +312,12 @@ impl App {
             Ok(_) => {
                 match remove_file(src) {
                     Ok(_) => self.set_message("deleted src, file moved!"),
-                    Err(_) => {
-                        self.set_message("something went wrong while moving")
-                    }
+                    Err(_) => self.set_message("something went wrong while moving"),
                 };
                 // self.set_message("moved!")
             }
             // might wanna verbalise those
-            Err(_) => {
-                self.set_message("something went wrong while moving")
-            }
+            Err(_) => self.set_message("something went wrong while moving"),
         };
         self.register = PathBuf::new();
         self.refresh_middle_column();
@@ -449,13 +464,25 @@ fn run_app<B: Backend>(
                         }
                         KeyCode::Char('d') => {
                             // implement deleting stuff
-                            app.input_mode = InputMode::Editing;
+                            app.input_mode = InputMode::Command;
                             app.input.push('d');
                         }
                         KeyCode::Char('y') => {
                             // yank stuff
-                            app.input_mode = InputMode::Editing;
+                            app.input_mode = InputMode::Command;
                             app.input.push('y');
+                        }
+                        KeyCode::Char('a') => {
+                            app.input_mode = InputMode::Input;
+                            let selected = app
+                                .get_selected()
+                                .unwrap()
+                                .file_name()
+                                .unwrap()
+                                .to_str()
+                                .unwrap();
+                            app.input = format!(":rename {selected}");
+                            app.set_message(app.input.clone())
                         }
                         KeyCode::Backspace => {
                             app.toggle_hidden_files();
@@ -464,12 +491,7 @@ fn run_app<B: Backend>(
                         }
                         _ => {}
                     },
-                    InputMode::Editing => match key.code {
-                        KeyCode::Enter => {
-                            // execute the command somehow
-                            app.input_mode = InputMode::Normal;
-                            app.execute();
-                        }
+                    InputMode::Command => match key.code {
                         KeyCode::Char('q') => return Ok(()),
                         KeyCode::Char('l') => {
                             // go right
@@ -549,12 +571,30 @@ fn run_app<B: Backend>(
                                 _ => {}
                             }
                         }
+                        KeyCode::Esc => {
+                            app.input_mode = InputMode::Normal;
+                            app.set_message("canceled");
+                        }
+                        _ => {}
+                    },
+                    InputMode::Input => match key.code {
+                        KeyCode::Char(c) => {
+                            app.input.push(c);
+                            app.set_message(app.input.clone())
+                        }
+                        KeyCode::Enter => {
+                            // execute the command somehow
+                            app.input_mode = InputMode::Normal;
+                            app.execute();
+                        }
                         KeyCode::Backspace => {
                             app.input.pop();
+                            app.set_message(app.input.clone())
                         }
 
                         KeyCode::Esc => {
                             app.input_mode = InputMode::Normal;
+                            app.set_message("canceled");
                         }
                         _ => {}
                     },
