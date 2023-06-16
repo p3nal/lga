@@ -6,8 +6,8 @@ use crossterm::{
 };
 use file_format::{FileFormat, Kind};
 use std::{
-    env::{self, join_paths},
-    fs::{self, copy, remove_dir, remove_dir_all, remove_file, rename, File, create_dir},
+    env,
+    fs::{self, copy, create_dir, remove_dir, remove_dir_all, remove_file, rename, File},
     io,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -25,31 +25,35 @@ struct StatefulList<T> {
 }
 impl<T> StatefulList<T> {
     fn next(&mut self) {
-        let i = match self.state.selected() {
-            Some(i) => {
-                if i >= self.items.len() - 1 {
-                    0
-                } else {
-                    i + 1
+        if self.items.len() > 0 {
+            let i = match self.state.selected() {
+                Some(i) => {
+                    if i >= self.items.len() - 1 {
+                        0
+                    } else {
+                        i + 1
+                    }
                 }
-            }
-            None => 0,
-        };
-        self.state.select(Some(i));
+                None => 0,
+            };
+            self.state.select(Some(i));
+        }
     }
 
     fn prev(&mut self) {
-        let i = match self.state.selected() {
-            Some(i) => {
-                if i == 0 {
-                    self.items.len() - 1
-                } else {
-                    i - 1
+        if self.items.len() > 0 {
+            let i = match self.state.selected() {
+                Some(i) => {
+                    if i == 0 {
+                        self.items.len() - 1
+                    } else {
+                        i - 1
+                    }
                 }
-            }
-            None => 0,
-        };
-        self.state.select(Some(i));
+                None => 0,
+            };
+            self.state.select(Some(i));
+        }
     }
 }
 
@@ -113,11 +117,12 @@ impl App {
         match self.get_selected() {
             Some(selected) => {
                 if selected.is_dir() {
+                    let empty = selected.read_dir().unwrap().next().is_none();
                     // check if directory is empty before proceeding
-                    if selected.read_dir().unwrap().next().is_none() {
-                        self.set_message("directory empty");
-                        return;
-                    }
+                    // if selected.read_dir().unwrap().next().is_none() {
+                    //     self.set_message("directory empty");
+                    //     return;
+                    // }
                     self.pwd = selected.to_path_buf();
                     self.left_column = self.middle_column.items.to_owned();
                     self.middle_column.items = self.right_column.to_owned();
@@ -127,8 +132,11 @@ impl App {
                     // fuck it. i think what i should be doing is copy the state
                     // to each one of the three things.. damn that would suck
                     // cuz then again i would need to do it beyond.. no way
-                    self.middle_column.state.select(Some(0));
-                    // check if dir is empty first...
+                    if !empty {
+                        self.middle_column.state.select(Some(0));
+                    } else {
+                        self.middle_column.state.select(None);
+                    }
                     self.refresh_right_column();
                 } else if selected.is_file() {
                     // i should probably use kind
@@ -235,8 +243,13 @@ impl App {
 
     fn set_metadata(&mut self) {
         let count = &self.middle_column.items.len();
-        let index = &self.middle_column.state.selected().unwrap_or(0) + 1;
-        self.metadata = format!("{index}/{count} ")
+        match self.middle_column.state.selected() {
+            Some(index) => {
+                let index = index + 1;
+                self.metadata = format!("{index}/{count} ")
+            }
+            None => self.metadata = String::new(),
+        }
     }
 
     fn set_message<T: AsRef<str>>(&mut self, message: T) {
@@ -479,7 +492,7 @@ fn run_app<B: Backend>(
                             // go to the end
                             app.middle_column
                                 .state
-                                .select(Some(app.middle_column.items.len() - 1));
+                                .select(app.middle_column.items.len().checked_sub(1));
                             app.refresh_middle_column();
                             app.refresh_right_column();
                             app.set_metadata();
@@ -497,15 +510,17 @@ fn run_app<B: Backend>(
                         }
                         KeyCode::Char('a') => {
                             app.input_mode = InputMode::Input;
-                            let selected = app
-                                .get_selected()
-                                .unwrap()
-                                .file_name()
-                                .unwrap()
-                                .to_str()
-                                .unwrap();
-                            app.input = format!(":rename {selected}");
-                            app.set_message(app.input.clone())
+                            match app.get_selected() {
+                                Some(selected) => {
+                                    let selected = selected.file_name().unwrap().to_str().unwrap();
+                                    app.input = format!(":rename {selected}");
+                                    app.set_message(app.input.clone())
+                                }
+                                None => {
+                                    app.set_message("nothing is selected");
+                                    app.input_mode = InputMode::Normal;
+                                }
+                            }
                         }
                         KeyCode::Char(':') => {
                             app.input_mode = InputMode::Input;

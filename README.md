@@ -15,3 +15,4 @@ currently working commands:
 todo:
  - bulkrename maybe?
  - tagging
+ - previews (at least for text files)

@@ -101,7 +101,7 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
         .middle_column
         .items
         .get(app.middle_column.state.selected().unwrap_or(0))
-        .unwrap()
+        .unwrap_or(&app.pwd)
         .display()
         .to_string();
     let header = Paragraph::new(header)
