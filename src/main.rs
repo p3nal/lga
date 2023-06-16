@@ -311,7 +311,24 @@ impl App {
         }
     }
 
-    fn confirm(&mut self) {}
+    fn confirm(&mut self) {
+        match self.input.as_str() {
+            "deletedir" => match self.get_selected() {
+                Some(selected) => {
+                    // delete all
+                    match remove_dir_all(selected.as_path()) {
+                        Ok(_) => {
+                            self.set_message("deleted!");
+                            self.refresh_middle_column();
+                        }
+                        Err(_) => self.set_message("cant delete"),
+                    };
+                }
+                None => self.set_message("Nothing is selected"),
+            },
+            _ => {}
+        }
+    }
 
     // a good thing to do is to make a trash folder and collect stuff to delete
     // there, then just before the app closes we can issue a delete...
@@ -331,13 +348,12 @@ impl App {
                             };
                         }
                         false => {
-                            // todo
+                            // this sucks
                             self.input = "deletedir".to_string();
                             self.input_mode = InputMode::Confirmation;
                             self.set_message("are you sure you want to delete this folder and all of its contents? [y/n]")
                         }
                     }
-                    // remove_dir_all(path)
                 } else if selected.is_file() {
                     match remove_file(path) {
                         Ok(_) => self.set_message("deleted file"),
@@ -618,42 +634,48 @@ fn run_app<B: Backend>(
                             app.set_metadata();
                             app.set_message("");
                         }
+                        KeyCode::Backspace => {
+                            app.toggle_hidden_files();
+                            app.refresh_all();
+                            app.set_metadata();
+                        }
                         KeyCode::Char(c) => {
                             app.input.push(c);
                             match c {
                                 'D' => {
+                                    app.input_mode = InputMode::Normal;
                                     if app.input.drain(..).collect::<String>().eq("dD") {
                                         app.delete_file()
                                     } else {
                                         app.set_message("command not found")
                                     }
-                                    app.input_mode = InputMode::Normal;
                                 }
                                 'd' => {
                                     if app.input.eq("dd") {
                                         app.yank_file()
                                     } else {
-                                        app.set_message("command not found")
+                                        app.set_message("command not found");
+                                        app.input_mode = InputMode::Normal;
                                     }
-                                    app.input_mode = InputMode::Normal;
                                 }
                                 'y' => {
                                     if app.input.eq("yy") {
                                         app.yank_file()
                                     } else {
-                                        app.set_message("command not found")
+                                        app.set_message("command not found");
+                                        app.input_mode = InputMode::Normal;
                                     }
-                                    app.input_mode = InputMode::Normal;
                                 }
                                 'p' => {
                                     let input = app.input.drain(..).collect::<String>();
                                     if input.eq("yyp") {
                                         app.paste_yanked_file();
-                                        app.input_mode = InputMode::Normal;
                                     } else if input.eq("ddp") {
                                         app.paste_moved_file();
-                                        app.input_mode = InputMode::Normal;
+                                    } else {
+                                        app.set_message("command not found");
                                     }
+                                    app.input_mode = InputMode::Normal;
                                 }
                                 _ => {
                                     app.set_message("command not found");
@@ -665,11 +687,6 @@ fn run_app<B: Backend>(
                             app.input_mode = InputMode::Normal;
                             app.set_message("canceled");
                         }
-                        KeyCode::Backspace => {
-                            app.toggle_hidden_files();
-                            app.refresh_all();
-                            app.set_metadata();
-                        }
                         _ => {}
                     },
                     InputMode::Input => match key.code {
@@ -679,8 +696,8 @@ fn run_app<B: Backend>(
                         }
                         KeyCode::Enter => {
                             // execute the command somehow
-                            app.input_mode = InputMode::Normal;
                             app.execute();
+                            app.input_mode = InputMode::Normal;
                         }
                         KeyCode::Backspace => {
                             app.input.pop();
@@ -688,8 +705,8 @@ fn run_app<B: Backend>(
                         }
 
                         KeyCode::Esc => {
-                            app.input_mode = InputMode::Normal;
                             app.set_message("canceled");
+                            app.input_mode = InputMode::Normal;
                         }
                         _ => {}
                     },
@@ -699,8 +716,8 @@ fn run_app<B: Backend>(
                             app.input_mode = InputMode::Normal;
                         }
                         _ => {
-                            app.input_mode = InputMode::Normal;
                             app.set_message("aborted");
+                            app.input_mode = InputMode::Normal;
                         }
                     },
                 }

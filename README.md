@@ -3,7 +3,7 @@ currently working commands:
  - h,j,k,l: vim movements
  - g: go to first item
  - G: go to last item
- - dD: deletes a file or an empty dir
+ - dD: deletes a file or a directory, asks for confirmation when dir is not empty
  - backspace: toggle show hidden files
  - yy: yank
  - dd: move
