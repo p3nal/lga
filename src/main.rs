@@ -7,7 +7,7 @@ use crossterm::{
 use file_format::{FileFormat, Kind};
 use std::{
     env::{self, join_paths},
-    fs::{self, copy, remove_dir, remove_dir_all, remove_file, rename, File},
+    fs::{self, copy, remove_dir, remove_dir_all, remove_file, rename, File, create_dir},
     io,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -291,6 +291,17 @@ impl App {
                     match File::create(dst) {
                         Ok(_) => self.set_message("file created"),
                         Err(_) => self.set_message("error creating file"),
+                    };
+                } else {
+                    self.set_message("path already exists")
+                }
+            }
+            ":mkdir" => {
+                let dst = PathBuf::new().join(&self.pwd).join(command.1);
+                if !Path::exists(&dst) {
+                    match create_dir(dst) {
+                        Ok(_) => self.set_message("directory created"),
+                        Err(_) => self.set_message("error creating directory"),
                     };
                 } else {
                     self.set_message("path already exists")
