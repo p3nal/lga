@@ -13,6 +13,8 @@ currently working commands:
  - `:mkdir`: mkdir dir
  - sn: sort by name
  - sm: sort by date modified
+ - sd: directories first
+ - sf: files first
 
 todo:
  - previews (at least for text files)

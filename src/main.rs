@@ -461,8 +461,19 @@ impl App {
                     .unwrap()
                     .modified()
                     .unwrap()
-                    .partial_cmp(&b.metadata().unwrap().modified().unwrap()).unwrap()
+                    .partial_cmp(&b.metadata().unwrap().modified().unwrap())
+                    .unwrap()
             }),
+            // dirs first
+            'd' => self
+                .middle_column
+                .items
+                .sort_by(|a, b| a.is_file().cmp(&b.is_file())),
+            // files first
+            'f' => self
+                .middle_column
+                .items
+                .sort_by(|a, b| a.is_dir().cmp(&b.is_dir())),
             _ => {}
         }
     }
@@ -606,7 +617,7 @@ fn run_app<B: Backend>(
                         KeyCode::Char('s') => {
                             // sort
                             app.set_message(
-                                "sort by name [n], modified date [m], dunno what else (todo)",
+                                "sort by name [n], modified date [m], dirs first [d], files first [f]",
                             );
                             app.input_mode = InputMode::Command("s".to_string());
                         }
@@ -706,6 +717,16 @@ fn run_app<B: Backend>(
                                     // sort by name
                                     app.input_mode = InputMode::Normal;
                                     app.sort_by('m');
+                                }
+                                "sd" => {
+                                    // sort by type: dirs first
+                                    app.input_mode = InputMode::Normal;
+                                    app.sort_by('d');
+                                }
+                                "sf" => {
+                                    // sort by type: files first
+                                    app.input_mode = InputMode::Normal;
+                                    app.sort_by('f');
                                 }
                                 _ => {
                                     app.input_mode = InputMode::Normal;
