@@ -10,8 +10,8 @@ currently working commands:
  - p: paste
  - a: rename
  - `:touch`: touch file
+ - `:mkdir`: mkdir dir
 
 todo:
  - bulkrename maybe?
- - mkdir
  - tagging
