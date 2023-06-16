@@ -182,10 +182,10 @@ impl App {
         // we have to somehow select the parent when going left
         match self.pwd.parent() {
             Some(parent) => {
-                let parent_index: usize = get_item_index(&self.pwd, &self.left_column);
+                let parent_index: Option<usize> = get_item_index(&self.pwd, &self.left_column);
                 self.right_column = self.middle_column.items.to_owned();
                 self.middle_column.items = self.left_column.to_owned();
-                self.middle_column.state.select(Some(parent_index));
+                self.middle_column.state.select(parent_index);
                 self.pwd = parent.to_path_buf();
                 match self.pwd.parent() {
                     Some(parent) => self.left_column = self.ls(parent),
@@ -256,34 +256,6 @@ impl App {
         self.message = message.as_ref().to_string()
     }
 
-    // a good thing to do is to make a trash folder and collect stuff to delete
-    // there, then just before the app closes we can issue a delete...
-    // although this may make exiting a bit slower i recon... anyway
-    fn delete_file(&mut self) {
-        match self.get_selected() {
-            Some(selected) => {
-                let path = selected.as_path();
-                if selected.is_dir() {
-                    // this should require confirmation or something like damn bro
-                    // remove_dir_all(path)
-                    match remove_dir(path) {
-                        Ok(_) => self.set_message("deleted"),
-                        Err(_) => self.set_message("wont delete"),
-                    };
-                } else if selected.is_file() {
-                    // this should require confirmation or something like damn bro
-                    match remove_file(path) {
-                        Ok(_) => self.set_message("deleted"),
-                        Err(_) => self.set_message("wont delete"),
-                    };
-                    // self.set_message("are you sure you want to do this");
-                }
-                self.refresh_middle_column();
-            }
-            None => {}
-        }
-    }
-
     fn execute(&mut self) {
         let command = self.input.drain(..).collect::<String>();
         let command = command.split_once(' ').unwrap_or(("", ""));
@@ -329,13 +301,45 @@ impl App {
         self.refresh_middle_column();
     }
 
+    // a good thing to do is to make a trash folder and collect stuff to delete
+    // there, then just before the app closes we can issue a delete...
+    // although this may make exiting a bit slower i recon... anyway
+    fn delete_file(&mut self) {
+        match self.get_selected() {
+            Some(selected) => {
+                let path = selected.as_path();
+                if selected.is_dir() {
+                    // this should require confirmation or something like damn bro
+                    // remove_dir_all(path)
+                    match remove_dir(path) {
+                        Ok(_) => self.set_message("deleted"),
+                        Err(_) => self.set_message("wont delete"),
+                    };
+                } else if selected.is_file() {
+                    // this should require confirmation or something like damn bro
+                    match remove_file(path) {
+                        Ok(_) => self.set_message("deleted"),
+                        Err(_) => self.set_message("wont delete"),
+                    };
+                    // self.set_message("are you sure you want to do this");
+                }
+                self.refresh_middle_column();
+            }
+            None => self.set_message("Nothing is selected"),
+        }
+    }
+
     fn yank_file(&mut self) {
-        let selected = self.get_selected().unwrap();
-        if selected.is_file() {
-            self.register = selected.to_path_buf();
-            self.set_message("file in register, type p to paste");
-        } else {
-            self.set_message("not a file")
+        match self.get_selected() {
+            Some(selected) => {
+                if selected.is_file() {
+                    self.register = selected.to_path_buf();
+                    self.set_message("file in register, type p to paste");
+                } else {
+                    self.set_message("not a file")
+                }
+            }
+            None => self.set_message("Nothing is selected"),
         }
     }
 
@@ -344,19 +348,26 @@ impl App {
         let dst = PathBuf::new()
             .join(&self.pwd)
             .join(src.file_name().unwrap());
-        match copy(src, dst) {
+        match copy(&src, &dst) {
             Ok(_) => {
-                match remove_file(src) {
-                    Ok(_) => self.set_message("deleted src, file moved!"),
-                    Err(_) => self.set_message("something went wrong while moving"),
+                match remove_file(&src) {
+                    Ok(_) => {
+                        self.refresh_middle_column();
+                        let index = get_item_index(&dst, &self.middle_column.items);
+                        self.set_message("deleted src, file moved!");
+                        // select the moved file
+                        self.middle_column.state.select(index)
+                    }
+                    Err(_) => {
+                        self.refresh_middle_column();
+                        self.set_message("copied file, but couldnt remove src");
+                    }
                 };
-                // self.set_message("moved!")
             }
             // might wanna verbalise those
             Err(_) => self.set_message("something went wrong while moving"),
         };
         self.register = PathBuf::new();
-        self.refresh_middle_column();
     }
 
     fn paste_yanked_file(&mut self) {
@@ -364,23 +375,27 @@ impl App {
         let dst = PathBuf::new()
             .join(&self.pwd)
             .join(src.file_name().unwrap());
-        match copy(src, dst) {
-            Ok(_) => self.set_message("pasted!"),
+        match copy(src, &dst) {
+            Ok(_) => {
+                self.refresh_middle_column();
+                let index = get_item_index(&dst, &self.middle_column.items);
+                self.set_message("pasted!");
+                // select the pasted file
+                self.middle_column.state.select(index)
+            }
             // might wanna verbalise those
             Err(_) => self.set_message("something went wrong while pasting"),
         };
         self.register = PathBuf::new();
-        self.refresh_middle_column();
     }
 }
 
-fn get_item_index(parent: &Path, items: &Vec<PathBuf>) -> usize {
-    items.into_iter().position(|p| p.eq(parent)).unwrap_or(0)
+fn get_item_index(item: &Path, items: &Vec<PathBuf>) -> Option<usize> {
+    items.into_iter().position(|i| i.eq(item))
 }
 
 fn ls(pwd: &Path, hidden: bool) -> Vec<PathBuf> {
     let paths = fs::read_dir(pwd);
-    // you might wanna think about making return a Result<Vec<PathBuf>, Error>
     match paths {
         Ok(paths) => paths
             .into_iter()
@@ -482,7 +497,9 @@ fn run_app<B: Backend>(
                         }
                         KeyCode::Char('g') => {
                             // go to the beginning
-                            app.middle_column.state.select(Some(0));
+                            app.middle_column
+                                .state
+                                .select(app.middle_column.items.len().gt(&0).then_some(0));
                             app.refresh_middle_column();
                             app.refresh_right_column();
                             app.set_metadata();
@@ -502,11 +519,13 @@ fn run_app<B: Backend>(
                             // implement deleting stuff
                             app.input_mode = InputMode::Command;
                             app.input.push('d');
+                            app.set_message("type D to delete or d to move")
                         }
                         KeyCode::Char('y') => {
                             // yank stuff
                             app.input_mode = InputMode::Command;
                             app.input.push('y');
+                            app.set_message("type y to yank")
                         }
                         KeyCode::Char('a') => {
                             app.input_mode = InputMode::Input;
@@ -573,7 +592,7 @@ fn run_app<B: Backend>(
                             // go to the end
                             app.middle_column
                                 .state
-                                .select(Some(app.middle_column.items.len() - 1));
+                                .select(app.middle_column.items.len().checked_sub(1));
                             app.refresh_middle_column();
                             app.refresh_right_column();
                             app.set_metadata();
@@ -602,16 +621,18 @@ fn run_app<B: Backend>(
                                 }
                                 'p' => {
                                     let input = app.input.drain(..).collect::<String>();
-                                    // are these checks necessary?
                                     if input.eq("yyp") {
-                                        app.input_mode = InputMode::Normal;
                                         app.paste_yanked_file();
-                                    } else if input.eq("ddp") {
                                         app.input_mode = InputMode::Normal;
+                                    } else if input.eq("ddp") {
                                         app.paste_moved_file();
+                                        app.input_mode = InputMode::Normal;
                                     }
                                 }
-                                _ => {}
+                                _ => {
+                                    app.set_message("command not found");
+                                    app.input_mode = InputMode::Normal;
+                                }
                             }
                         }
                         KeyCode::Esc => {

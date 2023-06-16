@@ -13,6 +13,8 @@ currently working commands:
  - `:mkdir`: mkdir dir
 
 todo:
+ - previews (at least for text files)
+ - selecting multiple items (visual mode)
+ - sorting
  - bulkrename maybe?
  - tagging
- - previews (at least for text files)
