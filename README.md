@@ -9,8 +9,9 @@ currently working commands:
  - dd: move
  - p: paste
  - a: rename
+ - `:touch`: touch file
 
 todo:
  - bulkrename maybe?
- - touch and mkdir
+ - mkdir
  - tagging

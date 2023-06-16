@@ -7,7 +7,7 @@ use crossterm::{
 use file_format::{FileFormat, Kind};
 use std::{
     env::{self, join_paths},
-    fs::{self, copy, remove_dir, remove_dir_all, remove_file, rename},
+    fs::{self, copy, remove_dir, remove_dir_all, remove_file, rename, File},
     io,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -223,6 +223,12 @@ impl App {
         self.hidden = !self.hidden;
     }
 
+    fn get_selected(&self) -> Option<&PathBuf> {
+        self.middle_column
+            .items
+            .get(self.middle_column.state.selected().unwrap_or(0))
+    }
+
     fn ls(&self, pwd: &Path) -> Vec<PathBuf> {
         ls(pwd, self.hidden)
     }
@@ -271,9 +277,7 @@ impl App {
         match command.0 {
             ":rename" => {
                 let src = self.get_selected().unwrap();
-                let dst = PathBuf::new()
-                    .join(&self.pwd)
-                    .join(command.1);
+                let dst = PathBuf::new().join(&self.pwd).join(command.1);
                 match rename(src, dst) {
                     Ok(_) => self.set_message("renamed file"),
                     Err(_) => {
@@ -281,16 +285,24 @@ impl App {
                     }
                 }
             }
-            _ => {}
+            ":touch" => {
+                let dst = PathBuf::new().join(&self.pwd).join(command.1);
+                if !Path::exists(&dst) {
+                    match File::create(dst) {
+                        Ok(_) => self.set_message("file created"),
+                        Err(_) => self.set_message("error creating file"),
+                    };
+                } else {
+                    self.set_message("path already exists")
+                }
+            }
+            _ => {
+                // make this into some easter egg, randomize statements and throw
+                // them in for a pinch of fun
+                self.set_message("i traveled the earth to find your command and couldnt find it")
+            }
         }
         self.refresh_middle_column();
-    }
-
-    // TODO gotta use this more
-    fn get_selected(&self) -> Option<&PathBuf> {
-        self.middle_column
-            .items
-            .get(self.middle_column.state.selected().unwrap_or(0))
     }
 
     fn yank_file(&mut self) {
@@ -482,6 +494,11 @@ fn run_app<B: Backend>(
                                 .to_str()
                                 .unwrap();
                             app.input = format!(":rename {selected}");
+                            app.set_message(app.input.clone())
+                        }
+                        KeyCode::Char(':') => {
+                            app.input_mode = InputMode::Input;
+                            app.input = ":".to_string();
                             app.set_message(app.input.clone())
                         }
                         KeyCode::Backspace => {
