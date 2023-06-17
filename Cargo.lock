@@ -58,11 +58,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "805eab5eeca901cbdfabf3f54adb2f27464073617279fd4e14eedb2a0757222e"
 
 [[package]]
+name = "humansize"
+version = "2.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6cb51c9a029ddc91b07a787f1d86b53ccfa49b0e86688c946ebe8d3555685dd7"
+dependencies = [
+ "libm",
+]
+
+[[package]]
 name = "lga"
 version = "0.1.0"
 dependencies = [
  "crossterm",
  "file-format",
+ "humansize",
  "tui",
 ]
 
@@ -71,6 +81,12 @@ name = "libc"
 version = "0.2.146"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f92be4933c13fd498862a9e02a3055f8a8d9c039ce33db97306fd5a6caa7f29b"
+
+[[package]]
+name = "libm"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7012b1bbb0719e1097c47611d3898568c546d597c2e74d66f6087edd5233ff4"
 
 [[package]]
 name = "lock_api"

@@ -5,13 +5,18 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use file_format::{FileFormat, Kind};
+use humansize::{format_size, DECIMAL};
 use std::{
     env,
-    fs::{self, copy, create_dir, remove_dir, remove_dir_all, remove_file, rename, File},
+    fs::{
+        self, copy, create_dir, remove_dir, remove_dir_all, remove_file, rename, File, Metadata,
+        ReadDir,
+    },
     io,
+    os::unix::prelude::MetadataExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 use tui::{
     backend::{Backend, CrosstermBackend},
@@ -72,6 +77,8 @@ enum InputMode {
     // confirmation mode for y/n confirmations, call it with the input already
     // filled
     Confirmation(Confirm),
+    // visual mode for selecting stuff
+    Visual(Vec<PathBuf>),
 }
 impl InputMode {
     fn push(&mut self, c: char) {
@@ -127,14 +134,19 @@ impl App {
         // list the parent stuff
         let left_column = match pwd.parent() {
             Some(parent) => ls(parent, hidden, &ListOrder::DirsFirst),
-            None => {
-                vec![]
-            }
+            None => vec![],
         };
         // list pwd stuff
         let middle_column = ls(&pwd, hidden, &ListOrder::DirsFirst);
         // list child stuff
-        let right_column = ls(&middle_column.get(0).unwrap().as_path(), hidden, &ListOrder::DirsFirst);
+        let right_column = ls(
+            &middle_column
+                .get(0)
+                .unwrap_or(&PathBuf::default())
+                .as_path(),
+            hidden,
+            &ListOrder::DirsFirst,
+        );
         App {
             left_column,
             middle_column: StatefulList {
@@ -156,8 +168,12 @@ impl App {
         match self.get_selected() {
             Some(selected) => {
                 if selected.is_dir() {
-                    let empty = selected.read_dir().unwrap().next().is_none();
-                    // check if directory is empty before proceeding
+                    // empty status, we gon need
+                    // this just seems like a lot of work
+                    // let empty = match selected.read_dir() {
+                    //     Ok(mut readdir) => readdir.next().is_none(),
+                    //     Err(_) => false,
+                    // };
                     self.pwd = selected.to_path_buf();
                     self.left_column = self.middle_column.items.to_owned();
                     self.middle_column.items = self.right_column.to_owned();
@@ -167,6 +183,7 @@ impl App {
                     // fuck it. i think what i should be doing is copy the state
                     // to each one of the three things.. damn that would suck
                     // cuz then again i would need to do it beyond.. no way
+                    let empty = self.middle_column.items.len() < 1;
                     if !empty {
                         self.middle_column.state.select(Some(0));
                     } else {
@@ -184,7 +201,7 @@ impl App {
                                 .spawn()
                                 .expect("failed to exec");
                         }
-                        Kind::Text => {
+                        Kind::Text | Kind::Application => {
                             Command::new("/usr/bin/nvim")
                                 .arg(selected.as_path())
                                 .stderr(Stdio::null())
@@ -239,6 +256,9 @@ impl App {
                     self.right_column = self.ls(&path)
                 } else if selected.is_file() {
                     self.right_column = vec![];
+                } else {
+                    // just cuz it probably needs to be handled later
+                    self.right_column = vec![];
                 }
             }
             None => {}
@@ -277,14 +297,22 @@ impl App {
     }
 
     fn set_metadata(&mut self) {
-        let count = &self.middle_column.items.len();
-        match self.middle_column.state.selected() {
+        let size = match self.get_selected() {
+            Some(selected) => match selected.metadata() {
+                Ok(metadata) => format_size(metadata.size(), DECIMAL),
+                Err(_) => String::new(),
+            },
+            None => String::new(),
+        };
+        let index = match self.middle_column.state.selected() {
             Some(index) => {
+                let count = &self.middle_column.items.len();
                 let index = index + 1;
-                self.metadata = format!("{index}/{count} ")
+                format!("{index}/{count} ")
             }
-            None => self.metadata = String::new(),
-        }
+            None => String::new(),
+        };
+        self.metadata = format!("{size}  {index}")
     }
 
     fn set_message<T: AsRef<str>>(&mut self, message: T) {
@@ -298,13 +326,17 @@ impl App {
             ":rename" => {
                 let src = self.get_selected().unwrap();
                 let dst = PathBuf::new().join(&self.pwd).join(command.1);
-                match rename(src, dst) {
-                    Ok(_) => {
-                        self.set_message("renamed file");
-                        self.refresh_middle_column();
-                    }
-                    Err(_) => {
-                        self.set_message("something went wrong while renaming");
+                if src.eq(&dst) {
+                    self.set_message("nothing to do")
+                } else {
+                    match rename(src, dst) {
+                        Ok(_) => {
+                            self.set_message("renamed file");
+                            self.refresh_middle_column();
+                        }
+                        Err(_) => {
+                            self.set_message("something went wrong while renaming");
+                        }
                     }
                 }
             }
@@ -485,7 +517,15 @@ fn ls(pwd: &Path, hidden: bool, order: &ListOrder) -> Vec<PathBuf> {
                 // filter hidden files or not depending on the hidden argument
                 .filter(|p| !hidden || !p.file_name().unwrap().to_str().unwrap().starts_with("."))
                 .collect::<Vec<PathBuf>>();
-            // todo implement sorting
+
+            let get_date_modified = |p: &PathBuf| match p.metadata() {
+                Ok(metadata) => match metadata.modified() {
+                    Ok(modified) => modified,
+                    Err(_) => SystemTime::UNIX_EPOCH,
+                },
+                Err(_) => SystemTime::UNIX_EPOCH,
+            };
+
             match order {
                 ListOrder::Default => paths,
                 ListOrder::Name => {
@@ -498,25 +538,11 @@ fn ls(pwd: &Path, hidden: bool, order: &ListOrder) -> Vec<PathBuf> {
                     paths
                 }
                 ListOrder::Modified => {
-                    paths.sort_by(|a, b| {
-                        a.metadata()
-                            .unwrap()
-                            .modified()
-                            .unwrap()
-                            .partial_cmp(&b.metadata().unwrap().modified().unwrap())
-                            .unwrap()
-                    });
+                    paths.sort_by(|a, b| get_date_modified(a).cmp(&get_date_modified(b)));
                     paths
                 }
                 ListOrder::ModifiedReverse => {
-                    paths.sort_by(|a, b| {
-                        a.metadata()
-                            .unwrap()
-                            .modified()
-                            .unwrap()
-                            .partial_cmp(&b.metadata().unwrap().modified().unwrap())
-                            .unwrap()
-                    });
+                    paths.sort_by(|a, b| get_date_modified(a).cmp(&get_date_modified(b)));
                     paths.reverse();
                     paths
                 }
@@ -648,7 +674,7 @@ fn run_app<B: Backend>(
                             app.set_message("type D to delete or d to move");
                             app.input_mode = InputMode::Command("d".to_string());
                         }
-                        KeyCode::Char('y') => {
+                        KeyCode::Char('y') | KeyCode::Char('Y') => {
                             // yank stuff
                             app.set_message("type y to yank");
                             app.input_mode = InputMode::Command("y".to_string());
@@ -678,6 +704,14 @@ fn run_app<B: Backend>(
                             app.toggle_hidden_files();
                             app.refresh_all();
                             app.set_metadata();
+                        }
+                        KeyCode::Char(' ') => {
+                            // select the current thing
+                            // so options huh... we have a vec in the global app
+                            // state that contains the selected paths...
+                            // but this vec has to be only ... i think we should
+                            // implement tagging first, itll make this easier to
+                            // reason about i guess
                         }
                         _ => {}
                     },
@@ -803,7 +837,6 @@ fn run_app<B: Backend>(
                             app.input_mode.pop();
                             app.set_message(app.input_mode.get_str())
                         }
-
                         KeyCode::Esc => {
                             app.set_message("canceled");
                             app.input_mode = InputMode::Normal;
@@ -820,6 +853,7 @@ fn run_app<B: Backend>(
                             app.input_mode = InputMode::Normal;
                         }
                     },
+                    InputMode::Visual(ref selected) => {}
                 }
             }
         }
