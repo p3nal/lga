@@ -59,21 +59,12 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
         .collect();
 
     let left_block = List::new(left_column_list)
-        .block(Block::default()./*title("Parent").*/borders(Borders::ALL).border_type(BorderType::Rounded))
-        .style(Style::default().fg(Color::Blue))
-        .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
-        .highlight_symbol(">>");
+        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded))
+        .style(Style::default().fg(Color::Blue));
 
     let middle_block = List::new(middle_column_list)
         .block(
             Block::default()
-                // .title(
-                //     app.pwd
-                //         .file_name()
-                //         .unwrap_or(OsStr::new("/"))
-                //         .to_str()
-                //         .unwrap(),
-                // )
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded),
         )
@@ -88,13 +79,11 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
 
     let right_block = List::new(right_column_list)
         .block(
-            Block::default() /* .title("Child") */
+            Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded),
         )
-        .style(Style::default().fg(Color::Red))
-        .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
-        .highlight_symbol(">>");
+        .style(Style::default().fg(Color::Red));
 
     // header
     let header = app
@@ -110,10 +99,7 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
 
     // footer(s)
     let metadata = Paragraph::new(app.metadata.as_ref()).alignment(Alignment::Right);
-    // .block(Block::default().borders(Borders::RIGHT));
-
     let message = Paragraph::new(app.message.as_ref()).alignment(Alignment::Left);
-    // .block(Block::default().borders(Borders::LEFT));
 
     // Render into chunks of the layout.
     frame.render_widget(header, vertical_chunks[0]);

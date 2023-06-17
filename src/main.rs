@@ -122,11 +122,12 @@ pub struct App {
     hidden: bool,
     message: String,
     metadata: String,
-    /// Current value of the input command
-    /// Current input mode
+    // Current value of the input command
+    // Current input mode
     input_mode: InputMode,
     // register for yanking and moving
     register: PathBuf,
+    tag_register: Vec<PathBuf>,
 }
 
 impl App {
@@ -161,6 +162,7 @@ impl App {
             metadata: String::new(),
             input_mode: InputMode::Normal,
             register: PathBuf::new(),
+            tag_register: vec![],
         }
     }
 
@@ -501,6 +503,18 @@ impl App {
         self.orderby = by;
         self.refresh_all();
     }
+
+    fn tag_item(&mut self) {
+        match self.get_selected() {
+            Some(selected) => {
+                let selected = selected.to_path_buf();
+                if !self.tag_register.contains(&selected) {
+                    self.tag_register.push(selected);
+                };
+            },
+            None => self.set_message("nothing selected"),
+        }
+    }
 }
 
 fn get_item_index(item: &Path, items: &Vec<PathBuf>) -> Option<usize> {
@@ -704,6 +718,9 @@ fn run_app<B: Backend>(
                             app.toggle_hidden_files();
                             app.refresh_all();
                             app.set_metadata();
+                        }
+                        KeyCode::Char('t') => {
+                            app.tag_item();
                         }
                         KeyCode::Char(' ') => {
                             // select the current thing
