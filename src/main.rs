@@ -94,10 +94,23 @@ impl InputMode {
     }
 }
 
+enum ListOrder {
+    Default,
+    Name,
+    NameReverse,
+    Modified,
+    ModifiedReverse,
+    Created,
+    CreatedReverse,
+    DirsFirst,
+    FilesFirst,
+}
+
 pub struct App {
     left_column: Vec<PathBuf>,
     middle_column: StatefulList<PathBuf>,
     right_column: Vec<PathBuf>,
+    orderby: ListOrder,
     pwd: PathBuf,
     hidden: bool,
     message: String,
@@ -113,15 +126,15 @@ impl App {
     fn new(pwd: PathBuf, hidden: bool) -> App {
         // list the parent stuff
         let left_column = match pwd.parent() {
-            Some(parent) => ls(parent, hidden),
+            Some(parent) => ls(parent, hidden, &ListOrder::DirsFirst),
             None => {
                 vec![]
             }
         };
         // list pwd stuff
-        let middle_column = ls(&pwd, hidden);
+        let middle_column = ls(&pwd, hidden, &ListOrder::DirsFirst);
         // list child stuff
-        let right_column = ls(&middle_column.get(0).unwrap().as_path(), hidden);
+        let right_column = ls(&middle_column.get(0).unwrap().as_path(), hidden, &ListOrder::DirsFirst);
         App {
             left_column,
             middle_column: StatefulList {
@@ -129,6 +142,7 @@ impl App {
                 state: ListState::default(),
             },
             right_column,
+            orderby: ListOrder::Default,
             pwd: pwd.to_path_buf(),
             hidden,
             message: String::new(),
@@ -259,7 +273,7 @@ impl App {
     }
 
     fn ls(&self, pwd: &Path) -> Vec<PathBuf> {
-        ls(pwd, self.hidden)
+        ls(pwd, self.hidden, &self.orderby)
     }
 
     fn set_metadata(&mut self) {
@@ -451,31 +465,9 @@ impl App {
 
     // careful this only sorts the cwd for now, and forgets about it once its
     // gone out of view
-    fn sort_by(&mut self, by: char) {
-        match by {
-            // name
-            'n' => self.middle_column.items.sort(),
-            // modified
-            'm' => self.middle_column.items.sort_by(|a, b| {
-                a.metadata()
-                    .unwrap()
-                    .modified()
-                    .unwrap()
-                    .partial_cmp(&b.metadata().unwrap().modified().unwrap())
-                    .unwrap()
-            }),
-            // dirs first
-            'd' => self
-                .middle_column
-                .items
-                .sort_by(|a, b| a.is_file().cmp(&b.is_file())),
-            // files first
-            'f' => self
-                .middle_column
-                .items
-                .sort_by(|a, b| a.is_dir().cmp(&b.is_dir())),
-            _ => {}
-        }
+    fn sort_by(&mut self, by: ListOrder) {
+        self.orderby = by;
+        self.refresh_all();
     }
 }
 
@@ -483,15 +475,62 @@ fn get_item_index(item: &Path, items: &Vec<PathBuf>) -> Option<usize> {
     items.into_iter().position(|i| i.eq(item))
 }
 
-fn ls(pwd: &Path, hidden: bool) -> Vec<PathBuf> {
+fn ls(pwd: &Path, hidden: bool, order: &ListOrder) -> Vec<PathBuf> {
     let paths = fs::read_dir(pwd);
     match paths {
-        Ok(paths) => paths
-            .into_iter()
-            .map(|p| p.unwrap().path())
-            // filter hidden files or not depending on the hidden argument
-            .filter(|p| !hidden || !p.file_name().unwrap().to_str().unwrap().starts_with("."))
-            .collect(),
+        Ok(paths) => {
+            let mut paths = paths
+                .into_iter()
+                .map(|p| p.unwrap().path())
+                // filter hidden files or not depending on the hidden argument
+                .filter(|p| !hidden || !p.file_name().unwrap().to_str().unwrap().starts_with("."))
+                .collect::<Vec<PathBuf>>();
+            // todo implement sorting
+            match order {
+                ListOrder::Default => paths,
+                ListOrder::Name => {
+                    paths.sort();
+                    paths
+                }
+                ListOrder::NameReverse => {
+                    paths.sort();
+                    paths.reverse();
+                    paths
+                }
+                ListOrder::Modified => {
+                    paths.sort_by(|a, b| {
+                        a.metadata()
+                            .unwrap()
+                            .modified()
+                            .unwrap()
+                            .partial_cmp(&b.metadata().unwrap().modified().unwrap())
+                            .unwrap()
+                    });
+                    paths
+                }
+                ListOrder::ModifiedReverse => {
+                    paths.sort_by(|a, b| {
+                        a.metadata()
+                            .unwrap()
+                            .modified()
+                            .unwrap()
+                            .partial_cmp(&b.metadata().unwrap().modified().unwrap())
+                            .unwrap()
+                    });
+                    paths.reverse();
+                    paths
+                }
+                ListOrder::DirsFirst => {
+                    paths.sort_by(|a, b| a.is_file().cmp(&b.is_file()));
+                    paths
+                }
+                ListOrder::FilesFirst => {
+                    paths.sort_by(|a, b| a.is_dir().cmp(&b.is_dir()));
+                    paths
+                }
+                _ => paths,
+            }
+        }
         Err(_) => {
             vec![]
         }
@@ -711,22 +750,32 @@ fn run_app<B: Backend>(
                                 "sn" => {
                                     // sort by name
                                     app.input_mode = InputMode::Normal;
-                                    app.sort_by('n');
+                                    app.sort_by(ListOrder::Name);
+                                }
+                                "sN" => {
+                                    // sort by name in reverse
+                                    app.input_mode = InputMode::Normal;
+                                    app.sort_by(ListOrder::NameReverse);
                                 }
                                 "sm" => {
-                                    // sort by name
+                                    // sort by modified
                                     app.input_mode = InputMode::Normal;
-                                    app.sort_by('m');
+                                    app.sort_by(ListOrder::Modified);
+                                }
+                                "sM" => {
+                                    // sort by modified
+                                    app.input_mode = InputMode::Normal;
+                                    app.sort_by(ListOrder::ModifiedReverse);
                                 }
                                 "sd" => {
                                     // sort by type: dirs first
                                     app.input_mode = InputMode::Normal;
-                                    app.sort_by('d');
+                                    app.sort_by(ListOrder::DirsFirst);
                                 }
                                 "sf" => {
                                     // sort by type: files first
                                     app.input_mode = InputMode::Normal;
-                                    app.sort_by('f');
+                                    app.sort_by(ListOrder::FilesFirst);
                                 }
                                 _ => {
                                     app.input_mode = InputMode::Normal;
