@@ -8,11 +8,8 @@ use file_format::{FileFormat, Kind};
 use humansize::{format_size, DECIMAL};
 use std::{
     env,
-    fs::{
-        self, copy, create_dir, remove_dir, remove_dir_all, remove_file, rename, File, Metadata,
-        ReadDir,
-    },
-    io,
+    fs::{self, copy, create_dir, remove_dir, remove_dir_all, remove_file, rename, File},
+    io, mem,
     os::unix::prelude::MetadataExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -24,6 +21,36 @@ use tui::{
     Terminal,
 };
 
+// fuck it. im adding a whole lot of other shit here
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct Item<T, U> {
+    path: T,
+    tagged: bool,
+    preview: Option<U>,
+}
+impl<T, U> Item<T, U> {
+    fn new(t: T, tagged: bool) -> Item<T, U> {
+        Item {
+            path: t,
+            tagged,
+            preview: None,
+        }
+    }
+    fn tag(&mut self) {
+        self.tagged = true
+    }
+    fn toggle_tagged(&mut self) {
+        self.tagged = !self.tagged
+    }
+    fn set_preview(&mut self, preview: U) {
+        self.preview = Some(preview)
+    }
+    fn set_item(&mut self, item: T) {
+        self.path = item
+    }
+}
+
+#[derive(Clone)]
 struct StatefulList<T> {
     items: Vec<T>,
     state: ListState,
@@ -114,9 +141,9 @@ enum ListOrder {
 }
 
 pub struct App {
-    left_column: Vec<PathBuf>,
-    middle_column: StatefulList<PathBuf>,
-    right_column: Vec<PathBuf>,
+    left_column: StatefulList<Item<PathBuf, String>>,
+    middle_column: StatefulList<Item<PathBuf, String>>,
+    right_column: StatefulList<Item<PathBuf, String>>,
     orderby: ListOrder,
     pwd: PathBuf,
     hidden: bool,
@@ -133,29 +160,36 @@ pub struct App {
 impl App {
     fn new(pwd: PathBuf, hidden: bool) -> App {
         // list the parent stuff
-        let left_column = match pwd.parent() {
+        let left_column_items = match pwd.parent() {
             Some(parent) => ls(parent, hidden, &ListOrder::DirsFirst),
             None => vec![],
         };
         // list pwd stuff
-        let middle_column = ls(&pwd, hidden, &ListOrder::DirsFirst);
+        let middle_column_items = ls(&pwd, hidden, &ListOrder::DirsFirst);
         // list child stuff
-        let right_column = ls(
-            &middle_column
+        let right_column_items = ls(
+            &middle_column_items
                 .get(0)
-                .unwrap_or(&PathBuf::default())
+                .unwrap_or(&Item::new(PathBuf::default(), false))
+                .path
                 .as_path(),
             hidden,
             &ListOrder::DirsFirst,
         );
         App {
-            left_column,
-            middle_column: StatefulList {
-                items: middle_column,
+            left_column: StatefulList {
+                items: left_column_items,
                 state: ListState::default(),
             },
-            right_column,
-            orderby: ListOrder::Default,
+            middle_column: StatefulList {
+                items: middle_column_items,
+                state: ListState::default(),
+            },
+            right_column: StatefulList {
+                items: right_column_items,
+                state: ListState::default(),
+            },
+            orderby: ListOrder::DirsFirst,
             pwd: pwd.to_path_buf(),
             hidden,
             message: String::new(),
@@ -169,28 +203,20 @@ impl App {
     fn go_right(&mut self) {
         match self.get_selected() {
             Some(selected) => {
+                let selected = &selected.path;
                 if selected.is_dir() {
-                    // empty status, we gon need
-                    // this just seems like a lot of work
-                    // let empty = match selected.read_dir() {
-                    //     Ok(mut readdir) => readdir.next().is_none(),
-                    //     Err(_) => false,
-                    // };
                     self.pwd = selected.to_path_buf();
-                    self.left_column = self.middle_column.items.to_owned();
-                    self.middle_column.items = self.right_column.to_owned();
-                    // maybe remove this? and deal with the errors lol
-                    // i think its best if we check if theres any selected and
-                    // then if none is, do select...
-                    // fuck it. i think what i should be doing is copy the state
-                    // to each one of the three things.. damn that would suck
-                    // cuz then again i would need to do it beyond.. no way
-                    let empty = self.middle_column.items.len() < 1;
-                    if !empty {
-                        self.middle_column.state.select(Some(0));
-                    } else {
-                        self.middle_column.state.select(None);
-                    }
+                    // what a fucked up fix
+                    self.left_column = mem::replace(
+                        &mut self.middle_column,
+                        mem::replace(
+                            &mut self.right_column,
+                            StatefulList {
+                                items: vec![],
+                                state: ListState::default(),
+                            },
+                        ),
+                    );
                     self.refresh_right_column();
                 } else if selected.is_file() {
                     // i should probably use kind
@@ -204,11 +230,12 @@ impl App {
                                 .expect("failed to exec");
                         }
                         Kind::Text | Kind::Application => {
-                            Command::new("/usr/bin/nvim")
-                                .arg(selected.as_path())
-                                .stderr(Stdio::null())
-                                .spawn()
-                                .expect("failed to exec");
+                            self.set_message("opening these messes up the terminal for now")
+                            // Command::new("/usr/bin/nvim")
+                            //     .arg(selected.as_path())
+                            //     .stderr(Stdio::null())
+                            //     .spawn()
+                            //     .expect("failed to exec");
                         }
                         Kind::Image => {
                             Command::new("/usr/bin/sxiv")
@@ -228,7 +255,9 @@ impl App {
                     }
                 }
             }
-            None => {}
+            None => {
+                self.set_message("none selected")
+            }
         }
     }
 
@@ -236,14 +265,24 @@ impl App {
         // we have to somehow select the parent when going left
         match self.pwd.parent() {
             Some(parent) => {
-                let parent_index: Option<usize> = get_item_index(&self.pwd, &self.left_column);
-                self.right_column = self.middle_column.items.to_owned();
-                self.middle_column.items = self.left_column.to_owned();
+                let parent_index: Option<usize> =
+                    get_item_index(&self.pwd, &self.left_column.items);
+                // again, i do not like the couple next lines.
+                self.right_column = mem::replace(
+                    &mut self.middle_column,
+                    mem::replace(
+                        &mut self.left_column,
+                        StatefulList {
+                            items: vec![],
+                            state: ListState::default(),
+                        },
+                    ),
+                );
                 self.middle_column.state.select(parent_index);
                 self.pwd = parent.to_path_buf();
                 match self.pwd.parent() {
-                    Some(parent) => self.left_column = self.ls(parent),
-                    None => self.left_column = vec![],
+                    Some(parent) => self.left_column.items = self.ls(parent),
+                    None => self.left_column.items = vec![],
                 }
             }
             None => {}
@@ -253,14 +292,18 @@ impl App {
     fn refresh_right_column(&mut self) {
         match self.get_selected() {
             Some(selected) => {
+                let selected = &selected.path;
                 let path = selected.as_path();
                 if selected.is_dir() {
-                    self.right_column = self.ls(&path)
+                    self.right_column.items = self.ls(&path);
+                    if self.right_column.items.len() > 0 {
+                        self.right_column.state.select(Some(0));
+                    }
                 } else if selected.is_file() {
-                    self.right_column = vec![];
+                    self.right_column.items = vec![];
                 } else {
                     // just cuz it probably needs to be handled later
-                    self.right_column = vec![];
+                    self.right_column.items = vec![];
                 }
             }
             None => {}
@@ -269,8 +312,8 @@ impl App {
 
     fn refresh_left_column(&mut self) {
         match self.pwd.parent() {
-            Some(parent) => self.left_column = self.ls(parent),
-            None => self.left_column = vec![],
+            Some(parent) => self.left_column.items = self.ls(parent),
+            None => self.left_column.items = vec![],
         };
     }
 
@@ -288,19 +331,19 @@ impl App {
         self.hidden = !self.hidden;
     }
 
-    fn get_selected(&self) -> Option<&PathBuf> {
+    fn get_selected(&self) -> Option<&Item<PathBuf, String>> {
         self.middle_column
             .items
             .get(self.middle_column.state.selected().unwrap_or(0))
     }
 
-    fn ls(&self, pwd: &Path) -> Vec<PathBuf> {
+    fn ls(&self, pwd: &Path) -> Vec<Item<PathBuf, String>> {
         ls(pwd, self.hidden, &self.orderby)
     }
 
     fn set_metadata(&mut self) {
         let size = match self.get_selected() {
-            Some(selected) => match selected.metadata() {
+            Some(selected) => match selected.path.metadata() {
                 Ok(metadata) => format_size(metadata.size(), DECIMAL),
                 Err(_) => String::new(),
             },
@@ -326,7 +369,7 @@ impl App {
         let command = command.split_once(' ').unwrap_or(("", ""));
         match command.0 {
             ":rename" => {
-                let src = self.get_selected().unwrap();
+                let src = &self.get_selected().unwrap().path;
                 let dst = PathBuf::new().join(&self.pwd).join(command.1);
                 if src.eq(&dst) {
                     self.set_message("nothing to do")
@@ -386,7 +429,7 @@ impl App {
             InputMode::Confirmation(Confirm::DeleteFolder) => match self.get_selected() {
                 Some(selected) => {
                     // delete all
-                    match remove_dir_all(selected.as_path()) {
+                    match remove_dir_all(selected.path.as_path()) {
                         Ok(_) => {
                             self.set_message("deleted!");
                             self.refresh_middle_column();
@@ -407,6 +450,7 @@ impl App {
         // todo after deleting, select something else if dir isnt empty
         match self.get_selected() {
             Some(selected) => {
+                let selected = &selected.path;
                 let path = selected.as_path();
                 if selected.is_dir() {
                     // check if empty
@@ -440,6 +484,7 @@ impl App {
     fn yank_file(&mut self) {
         match self.get_selected() {
             Some(selected) => {
+                let selected = &selected.path;
                 if selected.is_file() {
                     self.register = selected.to_path_buf();
                     self.set_message("file in register, type p to paste");
@@ -507,21 +552,21 @@ impl App {
     fn tag_item(&mut self) {
         match self.get_selected() {
             Some(selected) => {
-                let selected = selected.to_path_buf();
+                let selected = selected.path.to_path_buf();
                 if !self.tag_register.contains(&selected) {
                     self.tag_register.push(selected);
                 };
-            },
+            }
             None => self.set_message("nothing selected"),
         }
     }
 }
 
-fn get_item_index(item: &Path, items: &Vec<PathBuf>) -> Option<usize> {
-    items.into_iter().position(|i| i.eq(item))
+fn get_item_index<T>(item: &Path, items: &Vec<Item<PathBuf, T>>) -> Option<usize> {
+    items.into_iter().position(|i| i.path.eq(item))
 }
 
-fn ls(pwd: &Path, hidden: bool, order: &ListOrder) -> Vec<PathBuf> {
+fn ls<T: std::cmp::Ord>(pwd: &Path, hidden: bool, order: &ListOrder) -> Vec<Item<PathBuf, T>> {
     let paths = fs::read_dir(pwd);
     match paths {
         Ok(paths) => {
@@ -530,9 +575,16 @@ fn ls(pwd: &Path, hidden: bool, order: &ListOrder) -> Vec<PathBuf> {
                 .map(|p| p.unwrap().path())
                 // filter hidden files or not depending on the hidden argument
                 .filter(|p| !hidden || !p.file_name().unwrap().to_str().unwrap().starts_with("."))
-                .collect::<Vec<PathBuf>>();
+                .map(|p| {
+                    // ok now normally we should read this from the hashmap of
+                    // tagged paths and see if the path is .. tagged.. lol
+                    // TODO
+                    let tagged = false;
+                    Item::new(p, tagged)
+                })
+                .collect::<Vec<Item<PathBuf, T>>>();
 
-            let get_date_modified = |p: &PathBuf| match p.metadata() {
+            let get_date_modified = |item: &Item<PathBuf, _>| match item.path.metadata() {
                 Ok(metadata) => match metadata.modified() {
                     Ok(modified) => modified,
                     Err(_) => SystemTime::UNIX_EPOCH,
@@ -561,11 +613,11 @@ fn ls(pwd: &Path, hidden: bool, order: &ListOrder) -> Vec<PathBuf> {
                     paths
                 }
                 ListOrder::DirsFirst => {
-                    paths.sort_by(|a, b| a.is_file().cmp(&b.is_file()));
+                    paths.sort_by(|a, b| a.path.is_file().cmp(&b.path.is_file()));
                     paths
                 }
                 ListOrder::FilesFirst => {
-                    paths.sort_by(|a, b| a.is_dir().cmp(&b.is_dir()));
+                    paths.sort_by(|a, b| a.path.is_dir().cmp(&b.path.is_dir()));
                     paths
                 }
                 _ => paths,
@@ -702,7 +754,7 @@ fn run_app<B: Backend>(
                         }
                         KeyCode::Char('a') => match app.get_selected() {
                             Some(selected) => {
-                                let selected = selected.file_name().unwrap().to_str().unwrap();
+                                let selected = selected.path.file_name().unwrap().to_str().unwrap();
                                 app.input_mode = InputMode::Input(format!(":rename {selected}"));
                                 app.set_message(app.input_mode.get_str());
                             }

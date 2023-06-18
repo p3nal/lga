@@ -33,8 +33,9 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
     // Create a block...
     let left_column_list: Vec<ListItem> = app
         .left_column
+        .items
         .iter()
-        .map(|item| ListItem::new(item.file_name().unwrap().to_str().unwrap()))
+        .map(|item| ListItem::new(item.path.file_name().unwrap().to_str().unwrap()))
         .collect();
 
     let middle_column_list: Vec<ListItem> = app
@@ -42,6 +43,7 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
         .items
         .iter()
         .map(|item| {
+            let item = &item.path;
             if item.is_dir() {
                 ListItem::new(item.file_name().unwrap().to_str().unwrap())
                     .style(Style::default().fg(Color::LightGreen))
@@ -54,12 +56,17 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
 
     let right_column_list: Vec<ListItem> = app
         .right_column
+        .items
         .iter()
-        .map(|item| ListItem::new(item.file_name().unwrap().to_str().unwrap()))
+        .map(|item| ListItem::new(item.path.file_name().unwrap().to_str().unwrap()))
         .collect();
 
     let left_block = List::new(left_column_list)
-        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded),
+        )
         .style(Style::default().fg(Color::Blue));
 
     let middle_block = List::new(middle_column_list)
@@ -86,13 +93,10 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
         .style(Style::default().fg(Color::Red));
 
     // header
-    let header = app
-        .middle_column
-        .items
-        .get(app.middle_column.state.selected().unwrap_or(0))
-        .unwrap_or(&app.pwd)
-        .display()
-        .to_string();
+    let header = match app.get_selected() {
+        Some(selected) => selected.path.display().to_string(),
+        None => app.pwd.display().to_string(),
+    };
     let header = Paragraph::new(header)
         .style(Style::default().fg(Color::Magenta))
         .alignment(Alignment::Left);
