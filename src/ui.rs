@@ -43,12 +43,17 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
         .items
         .iter()
         .map(|item| {
+            let tagged = match item.tagged {
+                true => '*',
+                false => ' ',
+            };
             let item = &item.path;
+            // deal with those unwraps man
             if item.is_dir() {
-                ListItem::new(item.file_name().unwrap().to_str().unwrap())
+                ListItem::new(format!("{tagged}{}", item.file_name().unwrap().to_str().unwrap()))
                     .style(Style::default().fg(Color::LightGreen))
             } else {
-                ListItem::new(item.file_name().unwrap().to_str().unwrap())
+                ListItem::new(format!("{tagged}{}", item.file_name().unwrap().to_str().unwrap()))
                     .style(Style::default().fg(Color::Gray))
             }
         })
@@ -81,8 +86,7 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
                 .bg(Color::LightGreen)
                 .fg(Color::Black)
                 .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol(" ");
+        );
 
     let right_block = List::new(right_column_list)
         .block(

@@ -154,6 +154,7 @@ pub struct App {
     input_mode: InputMode,
     // register for yanking and moving
     register: PathBuf,
+    // make this a hashmap ig
     tag_register: Vec<PathBuf>,
 }
 
@@ -335,6 +336,12 @@ impl App {
         self.middle_column
             .items
             .get(self.middle_column.state.selected().unwrap_or(0))
+    }
+
+    fn get_mut_selected(&mut self) -> Option<&mut Item<PathBuf, String>> {
+        self.middle_column
+            .items
+            .get_mut(self.middle_column.state.selected().unwrap_or(0))
     }
 
     fn ls(&self, pwd: &Path) -> Vec<Item<PathBuf, String>> {
@@ -550,8 +557,9 @@ impl App {
     }
 
     fn tag_item(&mut self) {
-        match self.get_selected() {
+        match self.get_mut_selected() {
             Some(selected) => {
+                selected.tag();
                 let selected = selected.path.to_path_buf();
                 if !self.tag_register.contains(&selected) {
                     self.tag_register.push(selected);
@@ -559,6 +567,8 @@ impl App {
             }
             None => self.set_message("nothing selected"),
         }
+        // make this function read from the hashmap of tagged stuff
+        // self.refresh_middle_column()
     }
 }
 
