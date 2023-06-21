@@ -693,11 +693,10 @@ fn main() -> Result<(), io::Error> {
     }
 
     // create app and run it
-    let tick_rate = Duration::from_millis(250);
     // take argument or get cwd
     let mut app = App::new(pwd, true);
     app.middle_column.state.select(Some(0));
-    let res = run_app(&mut terminal, &mut app, tick_rate);
+    let res = run_app(&mut terminal, &mut app);
     confy::store("lga", Some("tags"), app.config).unwrap();
 
     // restore terminal
@@ -719,253 +718,246 @@ fn main() -> Result<(), io::Error> {
 fn run_app<B: Backend>(
     terminal: &mut Terminal<B>,
     app: &mut App,
-    tick_rate: Duration,
 ) -> io::Result<()> {
-    let last_tick = Instant::now();
     loop {
         terminal.draw(|f| ui::ui(f, app))?;
 
-        let timeout = tick_rate
-            .checked_sub(last_tick.elapsed())
-            .unwrap_or_else(|| Duration::from_secs(0));
-        if crossterm::event::poll(timeout)? {
-            if let Event::Key(key) = event::read()? {
-                match app.input_mode {
-                    InputMode::Normal => match key.code {
-                        KeyCode::Char('q') => return Ok(()),
-                        KeyCode::Char('l') => {
-                            // go right
-                            app.go_right();
-                            app.set_metadata();
-                        }
-                        KeyCode::Char('k') => {
-                            // go up
-                            app.middle_column.prev();
-                            app.refresh_right_column();
-                            app.set_metadata();
-                            app.set_message("");
-                        }
-                        KeyCode::Char('j') => {
-                            // go down
-                            app.middle_column.next();
-                            app.refresh_right_column();
-                            app.set_metadata();
-                            app.set_message("");
-                        }
-                        KeyCode::Char('h') => {
-                            // go left
-                            app.go_left();
-                            app.set_metadata();
-                            app.set_message("");
-                        }
-                        KeyCode::Char('g') => {
-                            // go to the beginning
-                            app.middle_column
-                                .state
-                                .select(app.middle_column.items.len().gt(&0).then_some(0));
-                            app.refresh_middle_column();
-                            app.refresh_right_column();
-                            app.set_metadata();
-                            app.set_message("");
-                        }
-                        KeyCode::Char('G') => {
-                            // go to the end
-                            app.middle_column
-                                .state
-                                .select(app.middle_column.items.len().checked_sub(1));
-                            app.refresh_middle_column();
-                            app.refresh_right_column();
-                            app.set_metadata();
-                            app.set_message("");
-                        }
-                        KeyCode::Char('d') => {
-                            // implement deleting stuff
-                            app.set_message("type D to delete or d to move");
-                            app.input_mode = InputMode::Command("d".to_string());
-                        }
-                        KeyCode::Char('y') | KeyCode::Char('Y') => {
-                            // yank stuff
-                            app.set_message("type y to yank");
-                            app.input_mode = InputMode::Command("y".to_string());
-                        }
-                        KeyCode::Char('s') => {
-                            // sort
-                            app.set_message(
-                                "sort by name [n], modified date [m], dirs first [d], files first [f]",
-                            );
-                            app.input_mode = InputMode::Command("s".to_string());
-                        }
-                        KeyCode::Char('a') => match app.get_selected() {
-                            Some(selected) => {
-                                let selected = selected.path.file_name().unwrap().to_str().unwrap();
-                                app.input_mode = InputMode::Input(format!(":rename {selected}"));
-                                app.set_message(app.input_mode.get_str());
-                            }
-                            None => {
-                                app.set_message("nothing is selected");
-                            }
-                        },
-                        KeyCode::Char(':') => {
-                            app.input_mode = InputMode::Input(":".to_string());
+        if let Event::Key(key) = event::read()? {
+            match app.input_mode {
+                InputMode::Normal => match key.code {
+                    KeyCode::Char('q') => return Ok(()),
+                    KeyCode::Char('l') => {
+                        // go right
+                        app.go_right();
+                        app.set_metadata();
+                    }
+                    KeyCode::Char('k') => {
+                        // go up
+                        app.middle_column.prev();
+                        app.refresh_right_column();
+                        app.set_metadata();
+                        app.set_message("");
+                    }
+                    KeyCode::Char('j') => {
+                        // go down
+                        app.middle_column.next();
+                        app.refresh_right_column();
+                        app.set_metadata();
+                        app.set_message("");
+                    }
+                    KeyCode::Char('h') => {
+                        // go left
+                        app.go_left();
+                        app.set_metadata();
+                        app.set_message("");
+                    }
+                    KeyCode::Char('g') => {
+                        // go to the beginning
+                        app.middle_column
+                            .state
+                            .select(app.middle_column.items.len().gt(&0).then_some(0));
+                        app.refresh_middle_column();
+                        app.refresh_right_column();
+                        app.set_metadata();
+                        app.set_message("");
+                    }
+                    KeyCode::Char('G') => {
+                        // go to the end
+                        app.middle_column
+                            .state
+                            .select(app.middle_column.items.len().checked_sub(1));
+                        app.refresh_middle_column();
+                        app.refresh_right_column();
+                        app.set_metadata();
+                        app.set_message("");
+                    }
+                    KeyCode::Char('d') => {
+                        // implement deleting stuff
+                        app.set_message("type D to delete or d to move");
+                        app.input_mode = InputMode::Command("d".to_string());
+                    }
+                    KeyCode::Char('y') | KeyCode::Char('Y') => {
+                        // yank stuff
+                        app.set_message("type y to yank");
+                        app.input_mode = InputMode::Command("y".to_string());
+                    }
+                    KeyCode::Char('s') => {
+                        // sort
+                        app.set_message(
+                            "sort by name [n], modified date [m], dirs first [d], files first [f]",
+                        );
+                        app.input_mode = InputMode::Command("s".to_string());
+                    }
+                    KeyCode::Char('a') => match app.get_selected() {
+                        Some(selected) => {
+                            let selected = selected.path.file_name().unwrap().to_str().unwrap();
+                            app.input_mode = InputMode::Input(format!(":rename {selected}"));
                             app.set_message(app.input_mode.get_str());
                         }
-                        KeyCode::Backspace => {
-                            app.toggle_hidden_files();
-                            app.refresh_all();
-                            app.set_metadata();
+                        None => {
+                            app.set_message("nothing is selected");
                         }
-                        KeyCode::Char('t') => {
-                            app.toggle_tag_item();
-                        }
-                        KeyCode::Char(' ') => {
-                            // select the current thing
-                            // so options huh... we have a vec in the global app
-                            // state that contains the selected paths...
-                            // but this vec has to be only ... i think we should
-                            // implement tagging first, itll make this easier to
-                            // reason about i guess
-                        }
-                        _ => {}
                     },
-                    InputMode::Command(ref mut command) => match key.code {
-                        KeyCode::Char('q') => return Ok(()),
-                        KeyCode::Char('l') => {
-                            // go right
-                            app.go_right();
-                            app.set_metadata();
-                        }
-                        KeyCode::Char('k') => {
-                            // go up
-                            app.middle_column.prev();
-                            app.refresh_right_column();
-                            app.set_metadata();
-                            app.set_message("");
-                        }
-                        KeyCode::Char('j') => {
-                            // go down
-                            app.middle_column.next();
-                            app.refresh_right_column();
-                            app.set_metadata();
-                            app.set_message("");
-                        }
-                        KeyCode::Char('h') => {
-                            // go left
-                            app.go_left();
-                            app.set_metadata();
-                            app.set_message("");
-                        }
-                        KeyCode::Char('g') => {
-                            // go to the beginning
-                            app.middle_column.state.select(Some(0));
-                            app.refresh_middle_column();
-                            app.refresh_right_column();
-                            app.set_metadata();
-                            app.set_message("");
-                        }
-                        KeyCode::Char('G') => {
-                            // go to the end
-                            app.middle_column
-                                .state
-                                .select(app.middle_column.items.len().checked_sub(1));
-                            app.refresh_middle_column();
-                            app.refresh_right_column();
-                            app.set_metadata();
-                            app.set_message("");
-                        }
-                        KeyCode::Backspace => {
-                            app.toggle_hidden_files();
-                            app.refresh_all();
-                            app.set_metadata();
-                        }
-                        KeyCode::Char(c) => {
-                            command.push(c);
-                            match command.as_str() {
-                                "dD" => {
-                                    app.input_mode = InputMode::Normal;
-                                    app.delete_file();
-                                }
-                                "dd" | "yy" => app.yank_file(),
-                                "ddp" => {
-                                    app.input_mode = InputMode::Normal;
-                                    app.paste_moved_file();
-                                }
-                                "yyp" => {
-                                    app.input_mode = InputMode::Normal;
-                                    app.paste_yanked_file();
-                                }
-                                "sn" => {
-                                    // sort by name
-                                    app.input_mode = InputMode::Normal;
-                                    app.sort_by(ListOrder::Name);
-                                }
-                                "sN" => {
-                                    // sort by name in reverse
-                                    app.input_mode = InputMode::Normal;
-                                    app.sort_by(ListOrder::NameReverse);
-                                }
-                                "sm" => {
-                                    // sort by modified
-                                    app.input_mode = InputMode::Normal;
-                                    app.sort_by(ListOrder::Modified);
-                                }
-                                "sM" => {
-                                    // sort by modified
-                                    app.input_mode = InputMode::Normal;
-                                    app.sort_by(ListOrder::ModifiedReverse);
-                                }
-                                "sd" => {
-                                    // sort by type: dirs first
-                                    app.input_mode = InputMode::Normal;
-                                    app.sort_by(ListOrder::DirsFirst);
-                                }
-                                "sf" => {
-                                    // sort by type: files first
-                                    app.input_mode = InputMode::Normal;
-                                    app.sort_by(ListOrder::FilesFirst);
-                                }
-                                _ => {
-                                    app.input_mode = InputMode::Normal;
-                                    app.set_message("command not found");
-                                }
+                    KeyCode::Char(':') => {
+                        app.input_mode = InputMode::Input(":".to_string());
+                        app.set_message(app.input_mode.get_str());
+                    }
+                    KeyCode::Backspace => {
+                        app.toggle_hidden_files();
+                        app.refresh_all();
+                        app.set_metadata();
+                    }
+                    KeyCode::Char('t') => {
+                        app.toggle_tag_item();
+                    }
+                    KeyCode::Char(' ') => {
+                        // select the current thing
+                        // so options huh... we have a vec in the global app
+                        // state that contains the selected paths...
+                        // but this vec has to be only ... i think we should
+                        // implement tagging first, itll make this easier to
+                        // reason about i guess
+                    }
+                    _ => {}
+                },
+                InputMode::Command(ref mut command) => match key.code {
+                    KeyCode::Char('q') => return Ok(()),
+                    KeyCode::Char('l') => {
+                        // go right
+                        app.go_right();
+                        app.set_metadata();
+                    }
+                    KeyCode::Char('k') => {
+                        // go up
+                        app.middle_column.prev();
+                        app.refresh_right_column();
+                        app.set_metadata();
+                        app.set_message("");
+                    }
+                    KeyCode::Char('j') => {
+                        // go down
+                        app.middle_column.next();
+                        app.refresh_right_column();
+                        app.set_metadata();
+                        app.set_message("");
+                    }
+                    KeyCode::Char('h') => {
+                        // go left
+                        app.go_left();
+                        app.set_metadata();
+                        app.set_message("");
+                    }
+                    KeyCode::Char('g') => {
+                        // go to the beginning
+                        app.middle_column.state.select(Some(0));
+                        app.refresh_middle_column();
+                        app.refresh_right_column();
+                        app.set_metadata();
+                        app.set_message("");
+                    }
+                    KeyCode::Char('G') => {
+                        // go to the end
+                        app.middle_column
+                            .state
+                            .select(app.middle_column.items.len().checked_sub(1));
+                        app.refresh_middle_column();
+                        app.refresh_right_column();
+                        app.set_metadata();
+                        app.set_message("");
+                    }
+                    KeyCode::Backspace => {
+                        app.toggle_hidden_files();
+                        app.refresh_all();
+                        app.set_metadata();
+                    }
+                    KeyCode::Char(c) => {
+                        command.push(c);
+                        match command.as_str() {
+                            "dD" => {
+                                app.input_mode = InputMode::Normal;
+                                app.delete_file();
+                            }
+                            "dd" | "yy" => app.yank_file(),
+                            "ddp" => {
+                                app.input_mode = InputMode::Normal;
+                                app.paste_moved_file();
+                            }
+                            "yyp" => {
+                                app.input_mode = InputMode::Normal;
+                                app.paste_yanked_file();
+                            }
+                            "sn" => {
+                                // sort by name
+                                app.input_mode = InputMode::Normal;
+                                app.sort_by(ListOrder::Name);
+                            }
+                            "sN" => {
+                                // sort by name in reverse
+                                app.input_mode = InputMode::Normal;
+                                app.sort_by(ListOrder::NameReverse);
+                            }
+                            "sm" => {
+                                // sort by modified
+                                app.input_mode = InputMode::Normal;
+                                app.sort_by(ListOrder::Modified);
+                            }
+                            "sM" => {
+                                // sort by modified
+                                app.input_mode = InputMode::Normal;
+                                app.sort_by(ListOrder::ModifiedReverse);
+                            }
+                            "sd" => {
+                                // sort by type: dirs first
+                                app.input_mode = InputMode::Normal;
+                                app.sort_by(ListOrder::DirsFirst);
+                            }
+                            "sf" => {
+                                // sort by type: files first
+                                app.input_mode = InputMode::Normal;
+                                app.sort_by(ListOrder::FilesFirst);
+                            }
+                            _ => {
+                                app.input_mode = InputMode::Normal;
+                                app.set_message("command not found");
                             }
                         }
-                        KeyCode::Esc => {
-                            app.input_mode = InputMode::Normal;
-                            app.set_message("canceled");
-                        }
-                        _ => {}
-                    },
-                    InputMode::Input(_) => match key.code {
-                        KeyCode::Char(c) => {
-                            app.input_mode.push(c);
-                            app.set_message(app.input_mode.get_str())
-                        }
-                        KeyCode::Enter => {
-                            // execute the command somehow
-                            app.execute();
-                            app.input_mode = InputMode::Normal;
-                        }
-                        KeyCode::Backspace => {
-                            app.input_mode.pop();
-                            app.set_message(app.input_mode.get_str())
-                        }
-                        KeyCode::Esc => {
-                            app.set_message("canceled");
-                            app.input_mode = InputMode::Normal;
-                        }
-                        _ => {}
-                    },
-                    InputMode::Confirmation(_) => match key.code {
-                        KeyCode::Char('y') => {
-                            app.confirm();
-                            app.input_mode = InputMode::Normal;
-                        }
-                        _ => {
-                            app.set_message("aborted");
-                            app.input_mode = InputMode::Normal;
-                        }
-                    },
-                }
+                    }
+                    KeyCode::Esc => {
+                        app.input_mode = InputMode::Normal;
+                        app.set_message("canceled");
+                    }
+                    _ => {}
+                },
+                InputMode::Input(_) => match key.code {
+                    KeyCode::Char(c) => {
+                        app.input_mode.push(c);
+                        app.set_message(app.input_mode.get_str())
+                    }
+                    KeyCode::Enter => {
+                        // execute the command somehow
+                        app.execute();
+                        app.input_mode = InputMode::Normal;
+                    }
+                    KeyCode::Backspace => {
+                        app.input_mode.pop();
+                        app.set_message(app.input_mode.get_str())
+                    }
+                    KeyCode::Esc => {
+                        app.set_message("canceled");
+                        app.input_mode = InputMode::Normal;
+                    }
+                    _ => {}
+                },
+                InputMode::Confirmation(_) => match key.code {
+                    KeyCode::Char('y') => {
+                        app.confirm();
+                        app.input_mode = InputMode::Normal;
+                    }
+                    _ => {
+                        app.set_message("aborted");
+                        app.input_mode = InputMode::Normal;
+                    }
+                },
             }
         }
     }
