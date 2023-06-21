@@ -1,4 +1,6 @@
 mod ui;
+use confy;
+use serde::{Serialize, Deserialize};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -8,8 +10,12 @@ use file_format::{FileFormat, Kind};
 use humansize::{format_size, DECIMAL};
 use std::{
     env,
-    fs::{self, copy, create_dir, remove_dir, remove_dir_all, remove_file, rename, File},
-    io, mem,
+    fs::{
+        self, copy, create_dir, create_dir_all, remove_dir, remove_dir_all, remove_file, rename, read_to_string,
+        File,
+    },
+    io::{self, BufRead, BufReader, Seek, Write},
+    mem,
     os::unix::prelude::MetadataExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -104,8 +110,6 @@ enum InputMode {
     // confirmation mode for y/n confirmations, call it with the input already
     // filled
     Confirmation(Confirm),
-    // visual mode for selecting stuff
-    Visual(Vec<PathBuf>),
 }
 impl InputMode {
     fn push(&mut self, c: char) {
@@ -140,6 +144,16 @@ enum ListOrder {
     FilesFirst,
 }
 
+#[derive(Serialize, Deserialize)]
+struct Config {
+    tags: Vec<PathBuf>
+}
+impl ::std::default::Default for Config {
+    fn default() -> Self {
+        Self { tags: vec![] }
+    }
+}
+
 pub struct App {
     left_column: StatefulList<Item<PathBuf, String>>,
     middle_column: StatefulList<Item<PathBuf, String>>,
@@ -155,18 +169,21 @@ pub struct App {
     // register for yanking and moving
     register: PathBuf,
     // make this a hashmap ig
-    tag_register: Vec<PathBuf>,
+    config: Config,
 }
 
 impl App {
     fn new(pwd: PathBuf, hidden: bool) -> App {
+        // we might need to display some message on start
+        let message = String::new();
+        let cfg: Config = confy::load("lga", Some("tags")).unwrap();
         // list the parent stuff
         let left_column_items = match pwd.parent() {
-            Some(parent) => ls(parent, hidden, &ListOrder::DirsFirst),
+            Some(parent) => ls(parent, hidden, &ListOrder::DirsFirst, &cfg.tags),
             None => vec![],
         };
         // list pwd stuff
-        let middle_column_items = ls(&pwd, hidden, &ListOrder::DirsFirst);
+        let middle_column_items = ls(&pwd, hidden, &ListOrder::DirsFirst, &cfg.tags);
         // list child stuff
         let right_column_items = ls(
             &middle_column_items
@@ -176,6 +193,7 @@ impl App {
                 .as_path(),
             hidden,
             &ListOrder::DirsFirst,
+            &cfg.tags,
         );
         App {
             left_column: StatefulList {
@@ -193,11 +211,11 @@ impl App {
             orderby: ListOrder::DirsFirst,
             pwd: pwd.to_path_buf(),
             hidden,
-            message: String::new(),
+            message,
             metadata: String::new(),
             input_mode: InputMode::Normal,
             register: PathBuf::new(),
-            tag_register: vec![],
+            config: cfg,
         }
     }
 
@@ -256,9 +274,7 @@ impl App {
                     }
                 }
             }
-            None => {
-                self.set_message("none selected")
-            }
+            None => self.set_message("none selected"),
         }
     }
 
@@ -345,7 +361,7 @@ impl App {
     }
 
     fn ls(&self, pwd: &Path) -> Vec<Item<PathBuf, String>> {
-        ls(pwd, self.hidden, &self.orderby)
+        ls(pwd, self.hidden, &self.orderby, &self.config.tags)
     }
 
     fn set_metadata(&mut self) {
@@ -561,8 +577,8 @@ impl App {
             Some(selected) => {
                 selected.tag();
                 let selected = selected.path.to_path_buf();
-                if !self.tag_register.contains(&selected) {
-                    self.tag_register.push(selected);
+                if !self.config.tags.contains(&selected) {
+                    self.config.tags.push(selected);
                 };
             }
             None => self.set_message("nothing selected"),
@@ -576,7 +592,12 @@ fn get_item_index<T>(item: &Path, items: &Vec<Item<PathBuf, T>>) -> Option<usize
     items.into_iter().position(|i| i.path.eq(item))
 }
 
-fn ls<T: std::cmp::Ord>(pwd: &Path, hidden: bool, order: &ListOrder) -> Vec<Item<PathBuf, T>> {
+fn ls<T: std::cmp::Ord>(
+    pwd: &Path,
+    hidden: bool,
+    order: &ListOrder,
+    tags: &Vec<PathBuf>
+) -> Vec<Item<PathBuf, T>> {
     let paths = fs::read_dir(pwd);
     match paths {
         Ok(paths) => {
@@ -589,7 +610,7 @@ fn ls<T: std::cmp::Ord>(pwd: &Path, hidden: bool, order: &ListOrder) -> Vec<Item
                     // ok now normally we should read this from the hashmap of
                     // tagged paths and see if the path is .. tagged.. lol
                     // TODO
-                    let tagged = false;
+                    let tagged = tags.contains(&p);
                     Item::new(p, tagged)
                 })
                 .collect::<Vec<Item<PathBuf, T>>>();
@@ -665,7 +686,9 @@ fn main() -> Result<(), io::Error> {
     // take argument or get cwd
     let mut app = App::new(pwd, true);
     app.middle_column.state.select(Some(0));
-    let res = run_app(&mut terminal, app, tick_rate);
+    let res = run_app(&mut terminal, &mut app, tick_rate);
+    confy::store("lga", Some("tags"), app.config).unwrap();
+
 
     // restore terminal
     disable_raw_mode()?;
@@ -685,12 +708,12 @@ fn main() -> Result<(), io::Error> {
 
 fn run_app<B: Backend>(
     terminal: &mut Terminal<B>,
-    mut app: App,
+    app: &mut App,
     tick_rate: Duration,
 ) -> io::Result<()> {
     let last_tick = Instant::now();
     loop {
-        terminal.draw(|f| ui::ui(f, &mut app))?;
+        terminal.draw(|f| ui::ui(f, app))?;
 
         let timeout = tick_rate
             .checked_sub(last_tick.elapsed())
@@ -932,7 +955,6 @@ fn run_app<B: Backend>(
                             app.input_mode = InputMode::Normal;
                         }
                     },
-                    InputMode::Visual(ref selected) => {}
                 }
             }
         }
