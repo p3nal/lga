@@ -15,7 +15,7 @@ currently working commands:
  - sm/M: sort by date modified/reverse date modified
  - sd: directories first
  - sf: files first
- - tagging
+ - t: tag/untag a file
 
 todo:
  - previews (at least for text files)
