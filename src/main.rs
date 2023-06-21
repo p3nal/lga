@@ -1,6 +1,5 @@
 mod ui;
 use confy;
-use serde::{Serialize, Deserialize};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -8,11 +7,12 @@ use crossterm::{
 };
 use file_format::{FileFormat, Kind};
 use humansize::{format_size, DECIMAL};
+use serde::{Deserialize, Serialize};
 use std::{
     env,
     fs::{
-        self, copy, create_dir, create_dir_all, remove_dir, remove_dir_all, remove_file, rename, read_to_string,
-        File,
+        self, copy, create_dir, create_dir_all, read_to_string, remove_dir, remove_dir_all,
+        remove_file, rename, File,
     },
     io::{self, BufRead, BufReader, Seek, Write},
     mem,
@@ -146,7 +146,7 @@ enum ListOrder {
 
 #[derive(Serialize, Deserialize)]
 struct Config {
-    tags: Vec<PathBuf>
+    tags: Vec<PathBuf>,
 }
 impl ::std::default::Default for Config {
     fn default() -> Self {
@@ -572,19 +572,30 @@ impl App {
         self.refresh_all();
     }
 
-    fn tag_item(&mut self) {
+    fn toggle_tag_item(&mut self) {
         match self.get_mut_selected() {
             Some(selected) => {
-                selected.tag();
+                selected.toggle_tagged();
                 let selected = selected.path.to_path_buf();
                 if !self.config.tags.contains(&selected) {
                     self.config.tags.push(selected);
+                } else {
+                    match self
+                        .config
+                        .tags
+                        .clone()
+                        .into_iter()
+                        .position(|p| p == selected)
+                    {
+                        Some(pos) => {
+                            self.config.tags.remove(pos);
+                        }
+                        None => self.set_message("selected item not in the list of tagged items"),
+                    };
                 };
             }
             None => self.set_message("nothing selected"),
         }
-        // make this function read from the hashmap of tagged stuff
-        // self.refresh_middle_column()
     }
 }
 
@@ -596,7 +607,7 @@ fn ls<T: std::cmp::Ord>(
     pwd: &Path,
     hidden: bool,
     order: &ListOrder,
-    tags: &Vec<PathBuf>
+    tags: &Vec<PathBuf>,
 ) -> Vec<Item<PathBuf, T>> {
     let paths = fs::read_dir(pwd);
     match paths {
@@ -688,7 +699,6 @@ fn main() -> Result<(), io::Error> {
     app.middle_column.state.select(Some(0));
     let res = run_app(&mut terminal, &mut app, tick_rate);
     confy::store("lga", Some("tags"), app.config).unwrap();
-
 
     // restore terminal
     disable_raw_mode()?;
@@ -805,7 +815,7 @@ fn run_app<B: Backend>(
                             app.set_metadata();
                         }
                         KeyCode::Char('t') => {
-                            app.tag_item();
+                            app.toggle_tag_item();
                         }
                         KeyCode::Char(' ') => {
                             // select the current thing
