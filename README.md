@@ -16,6 +16,7 @@ currently working commands:
  - sd: directories first
  - sf: files first
  - t: tag/untag a file
+ - f/forward slash: incremental search
 
 todo:
  - previews (at least for text files)

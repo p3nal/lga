@@ -389,60 +389,68 @@ impl App {
 
     fn execute(&mut self) {
         let command = self.input_mode.get_str();
-        let command = command.split_once(' ').unwrap_or(("", ""));
-        match command.0 {
-            ":rename" => {
-                let src = &self.get_selected().unwrap().path;
-                let dst = PathBuf::new().join(&self.pwd).join(command.1);
-                if src.eq(&dst) {
-                    self.set_message("nothing to do")
-                } else {
-                    match rename(src, dst) {
-                        Ok(_) => {
-                            self.set_message("renamed file");
-                            self.refresh_middle_column();
-                        }
-                        Err(_) => {
-                            self.set_message("something went wrong while renaming");
+        match command.split_once(' ') {
+            Some(command) => match command.0 {
+                // then it has two words as expected
+                ":rename" => {
+                    let src = &self.get_selected().unwrap().path;
+                    let dst = PathBuf::new().join(&self.pwd).join(command.1);
+                    if src.eq(&dst) {
+                        self.set_message("nothing to do")
+                    } else {
+                        match rename(src, dst) {
+                            Ok(_) => {
+                                self.set_message("renamed file");
+                                self.refresh_middle_column();
+                            }
+                            Err(_) => {
+                                self.set_message("something went wrong while renaming");
+                            }
                         }
                     }
                 }
-            }
-            // todo implement selecting things once created
-            ":touch" => {
-                let dst = PathBuf::new().join(&self.pwd).join(command.1);
-                if !Path::exists(&dst) {
-                    match File::create(&dst) {
-                        Ok(_) => {
-                            self.set_message("file created");
-                            self.refresh_middle_column();
-                            let index = get_item_index(&dst, &self.middle_column.items);
-                            self.middle_column.state.select(index);
-                        }
-                        Err(_) => self.set_message("error creating file"),
-                    };
-                } else {
-                    self.set_message("path already exists")
+                // todo implement selecting things once created
+                ":touch" => {
+                    let dst = PathBuf::new().join(&self.pwd).join(command.1);
+                    if !Path::exists(&dst) {
+                        match File::create(&dst) {
+                            Ok(_) => {
+                                self.set_message("file created");
+                                self.refresh_middle_column();
+                                let index = get_item_index(&dst, &self.middle_column.items);
+                                self.middle_column.state.select(index);
+                            }
+                            Err(_) => self.set_message("error creating file"),
+                        };
+                    } else {
+                        self.set_message("path already exists")
+                    }
                 }
-            }
-            ":mkdir" => {
-                let dst = PathBuf::new().join(&self.pwd).join(command.1);
-                if !Path::exists(&dst) {
-                    match create_dir(dst) {
-                        Ok(_) => {
-                            self.set_message("directory created");
-                            self.refresh_middle_column();
-                        }
-                        Err(_) => self.set_message("error creating directory"),
-                    };
-                } else {
-                    self.set_message("path already exists")
+                ":mkdir" => {
+                    let dst = PathBuf::new().join(&self.pwd).join(command.1);
+                    if !Path::exists(&dst) {
+                        match create_dir(dst) {
+                            Ok(_) => {
+                                self.set_message("directory created");
+                                self.refresh_middle_column();
+                            }
+                            Err(_) => self.set_message("error creating directory"),
+                        };
+                    } else {
+                        self.set_message("path already exists")
+                    }
                 }
-            }
-            _ => {
-                // make this into some easter egg, randomize statements and throw
-                // them in for a pinch of fun
-                self.set_message("i traveled the earth to find your command and couldnt find it")
+                _ => {
+                    // make this into some easter egg, randomize statements and throw
+                    // them in for a pinch of fun
+                    self.set_message(
+                        "i traveled the earth to find your command and couldnt find it",
+                    )
+                }
+            },
+            None => {
+                // then it has only one word
+                self.refresh_right_column()
             }
         }
     }
@@ -580,13 +588,7 @@ impl App {
                 if !self.config.tags.contains(&selected) {
                     self.config.tags.push(selected);
                 } else {
-                    match self
-                        .config
-                        .tags
-                        .clone()
-                        .into_iter()
-                        .position(|p| p == selected)
-                    {
+                    match self.config.tags.iter().position(|p| *p == selected) {
                         Some(pos) => {
                             self.config.tags.remove(pos);
                         }
@@ -597,10 +599,31 @@ impl App {
             None => self.set_message("nothing selected"),
         }
     }
+
+    fn inc_search(&mut self) {
+        let pattern = self.input_mode.get_str();
+        if !pattern.starts_with(|s| s == '/' || s == 'f') {
+            // ayo wtf are you thinking calling this function without the proper
+            // thing
+            return;
+        }
+        let pattern = &pattern[1..].to_lowercase();
+        let index = self.middle_column.items.iter().position(|item| {
+            item.path
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_lowercase()
+                .starts_with(pattern)
+        });
+        self.middle_column.state.select(index);
+        self.refresh_middle_column()
+    }
 }
 
 fn get_item_index<T>(item: &Path, items: &Vec<Item<PathBuf, T>>) -> Option<usize> {
-    items.into_iter().position(|i| i.path.eq(item))
+    items.iter().position(|i| i.path.eq(item))
 }
 
 fn ls<T: std::cmp::Ord>(
@@ -715,10 +738,7 @@ fn main() -> Result<(), io::Error> {
     Ok(())
 }
 
-fn run_app<B: Backend>(
-    terminal: &mut Terminal<B>,
-    app: &mut App,
-) -> io::Result<()> {
+fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<()> {
     loop {
         terminal.draw(|f| ui::ui(f, app))?;
 
@@ -726,32 +746,32 @@ fn run_app<B: Backend>(
             match app.input_mode {
                 InputMode::Normal => match key.code {
                     KeyCode::Char('q') => return Ok(()),
-                    KeyCode::Char('l') => {
+                    KeyCode::Char('l') | KeyCode::Right => {
                         // go right
                         app.go_right();
                         app.set_metadata();
                     }
-                    KeyCode::Char('k') => {
+                    KeyCode::Char('k') | KeyCode::Up => {
                         // go up
                         app.middle_column.prev();
                         app.refresh_right_column();
                         app.set_metadata();
                         app.set_message("");
                     }
-                    KeyCode::Char('j') => {
+                    KeyCode::Char('j') | KeyCode::Down => {
                         // go down
                         app.middle_column.next();
                         app.refresh_right_column();
                         app.set_metadata();
                         app.set_message("");
                     }
-                    KeyCode::Char('h') => {
+                    KeyCode::Char('h') | KeyCode::Left => {
                         // go left
                         app.go_left();
                         app.set_metadata();
                         app.set_message("");
                     }
-                    KeyCode::Char('g') => {
+                    KeyCode::Char('g') | KeyCode::PageUp => {
                         // go to the beginning
                         app.middle_column
                             .state
@@ -761,7 +781,7 @@ fn run_app<B: Backend>(
                         app.set_metadata();
                         app.set_message("");
                     }
-                    KeyCode::Char('G') => {
+                    KeyCode::Char('G') | KeyCode::PageDown => {
                         // go to the end
                         app.middle_column
                             .state
@@ -810,6 +830,11 @@ fn run_app<B: Backend>(
                     KeyCode::Char('t') => {
                         app.toggle_tag_item();
                     }
+                    KeyCode::Char('f') | KeyCode::Char('/') => {
+                        // implement incremental search
+                        app.input_mode = InputMode::Input("/".to_string());
+                        app.set_message(app.input_mode.get_str());
+                    }
                     KeyCode::Char(' ') => {
                         // select the current thing
                         // so options huh... we have a vec in the global app
@@ -822,40 +847,42 @@ fn run_app<B: Backend>(
                 },
                 InputMode::Command(ref mut command) => match key.code {
                     KeyCode::Char('q') => return Ok(()),
-                    KeyCode::Char('l') => {
+                    KeyCode::Char('l') | KeyCode::Right => {
                         // go right
                         app.go_right();
                         app.set_metadata();
                     }
-                    KeyCode::Char('k') => {
+                    KeyCode::Char('k') | KeyCode::Up => {
                         // go up
                         app.middle_column.prev();
                         app.refresh_right_column();
                         app.set_metadata();
                         app.set_message("");
                     }
-                    KeyCode::Char('j') => {
+                    KeyCode::Char('j') | KeyCode::Down => {
                         // go down
                         app.middle_column.next();
                         app.refresh_right_column();
                         app.set_metadata();
                         app.set_message("");
                     }
-                    KeyCode::Char('h') => {
+                    KeyCode::Char('h') | KeyCode::Left => {
                         // go left
                         app.go_left();
                         app.set_metadata();
                         app.set_message("");
                     }
-                    KeyCode::Char('g') => {
+                    KeyCode::Char('g') | KeyCode::PageUp => {
                         // go to the beginning
-                        app.middle_column.state.select(Some(0));
+                        app.middle_column
+                            .state
+                            .select(app.middle_column.items.len().gt(&0).then_some(0));
                         app.refresh_middle_column();
                         app.refresh_right_column();
                         app.set_metadata();
                         app.set_message("");
                     }
-                    KeyCode::Char('G') => {
+                    KeyCode::Char('G') | KeyCode::PageDown => {
                         // go to the end
                         app.middle_column
                             .state
@@ -931,7 +958,15 @@ fn run_app<B: Backend>(
                 InputMode::Input(_) => match key.code {
                     KeyCode::Char(c) => {
                         app.input_mode.push(c);
-                        app.set_message(app.input_mode.get_str())
+                        app.set_message(app.input_mode.get_str());
+                        if app
+                            .input_mode
+                            .get_str()
+                            .starts_with('/')
+                        {
+                            // incrementally highlight the found thing
+                            app.inc_search();
+                        }
                     }
                     KeyCode::Enter => {
                         // execute the command somehow
