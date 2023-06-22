@@ -1,14 +1,14 @@
 # lga
-currently working commands:
+Currently working commands:
  - h,j,k,l: vim movements
  - g: go to first item
  - G: go to last item
- - dD: deletes a file or a directory, asks for confirmation when dir is not empty
+ - dD: deletes a file or a directory, asks for confirmation when the directory is not empty
  - backspace: toggle show hidden files
  - yy: yank
  - dd: move
  - p: paste
- - a: rename
+ - a or `:rename`: rename
  - `:touch`: touch file
  - `:mkdir`: mkdir dir
  - sn/N: sort by name/reverse name
@@ -16,7 +16,8 @@ currently working commands:
  - sd: directories first
  - sf: files first
  - t: tag/untag a file
- - f/forward slash: incremental search
+ - /: incremental search
+ - f or `:find`: incremental search but not as restrictive (i don't know what it's called, but you only need to type some letters in their order.. just like in neovim telescope or completion with LSPs...)
 
 todo:
  - previews (at least for text files)
