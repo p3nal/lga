@@ -160,17 +160,22 @@ pub struct App {
     left_column: StatefulList<Item<PathBuf, String>>,
     middle_column: StatefulList<Item<PathBuf, String>>,
     right_column: StatefulList<Item<PathBuf, String>>,
+    // order... in the courtroom
     orderby: ListOrder,
     pwd: PathBuf,
+    // show hidden files
     hidden: bool,
+    // the things that show up on the lower left corner
     message: String,
+    // the things that show up on the lower right corner
     metadata: String,
-    // Current value of the input command
     // Current input mode
     input_mode: InputMode,
     // register for yanking and moving
-    register: PathBuf,
-    // make this a hashmap ig
+    yank_register: PathBuf,
+    // register for selecting stuff
+    select_register: Vec<PathBuf>,
+    // app config that gets saved
     config: Config,
 }
 
@@ -216,7 +221,8 @@ impl App {
             message,
             metadata: String::new(),
             input_mode: InputMode::Normal,
-            register: PathBuf::new(),
+            yank_register: PathBuf::new(),
+            select_register: Vec::new(),
             config: cfg,
         }
     }
@@ -448,7 +454,8 @@ impl App {
                         None => self.middle_column.state.select(Some(0)),
                     };
                     self.set_message("");
-                    self.refresh_right_column()
+                    self.refresh_right_column();
+                    self.go_right()
                 }
                 _ => {
                     // make this into some easter egg, randomize statements and throw
@@ -544,7 +551,7 @@ impl App {
             Some(selected) => {
                 let selected = &selected.path;
                 if selected.is_file() {
-                    self.register = selected.to_path_buf();
+                    self.yank_register = selected.to_path_buf();
                     self.set_message("file in register, type p to paste");
                 } else {
                     self.set_message("not a file")
@@ -555,7 +562,7 @@ impl App {
     }
 
     fn paste_moved_file(&mut self) {
-        let src = &self.register;
+        let src = &self.yank_register;
         let dst = PathBuf::new()
             .join(&self.pwd)
             .join(src.file_name().unwrap());
@@ -578,11 +585,11 @@ impl App {
             // might wanna verbalise those
             Err(_) => self.set_message("something went wrong while moving"),
         };
-        self.register = PathBuf::new();
+        self.yank_register = PathBuf::new();
     }
 
     fn paste_yanked_file(&mut self) {
-        let src = &self.register;
+        let src = &self.yank_register;
         let dst = PathBuf::new()
             .join(&self.pwd)
             .join(src.file_name().unwrap());
@@ -597,7 +604,7 @@ impl App {
             // might wanna verbalise those
             Err(_) => self.set_message("something went wrong while pasting"),
         };
-        self.register = PathBuf::new();
+        self.yank_register = PathBuf::new();
     }
 
     // careful this only sorts the cwd for now, and forgets about it once its
@@ -670,7 +677,6 @@ impl App {
                 pattern.chars().for_each(|c| {
                     let mut max = None;
                     loop {
-                        eprintln!("char c = {c}");
                         match item
                             .path
                             .file_name()
@@ -683,7 +689,6 @@ impl App {
                             .position(|(i, x)| x == c && (Some(i) > max))
                         {
                             Some(pos) => {
-                                eprintln!("pos = {pos} score = {score:?} i = {i} max = {max:?}");
                                 if pos >= *score.iter().max().unwrap_or(&0) && !score.contains(&pos)
                                 {
                                     score.push(pos);
@@ -698,21 +703,24 @@ impl App {
                 });
                 (i, score)
             })
-            .inspect(|x| {
-                eprintln!(
-                    "about to filter this thing to get biggest elements {:?}, while length = {}",
-                    x,
-                    pattern.len()
-                )
-            })
             .filter(|(_, s)| s.iter().count() == pattern.len())
-            .inspect(|x| eprintln!("getting the minimum of these {:?}", x))
             .min_by(|x, y| x.1.cmp(&y.1))
             .map(|x| x.0);
 
         self.middle_column.state.select(index);
         self.refresh_middle_column();
         index
+    }
+
+    fn select(&mut self) {
+        match self.get_selected() {
+            Some(selected) => {
+                // shit im gonna have to color these somehow
+                // ok i guess i wont color them ill just add some padding or something
+
+            }
+            None => {}
+        }
     }
 }
 
@@ -936,11 +944,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                     }
                     KeyCode::Char(' ') => {
                         // select the current thing
-                        // so options huh... we have a vec in the global app
-                        // state that contains the selected paths...
-                        // but this vec has to be only ... i think we should
-                        // implement tagging first, itll make this easier to
-                        // reason about i guess
+                        app.select();
                     }
                     _ => {}
                 },
