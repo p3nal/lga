@@ -9,6 +9,7 @@ use file_format::{FileFormat, Kind};
 use humansize::{format_size, DECIMAL};
 use serde::{Deserialize, Serialize};
 use std::{
+    cmp::Ordering,
     env,
     fs::{
         self, copy, create_dir, create_dir_all, read_to_string, remove_dir, remove_dir_all,
@@ -20,6 +21,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
     time::{Duration, Instant, SystemTime},
+    usize,
 };
 use tui::{
     backend::{Backend, CrosstermBackend},
@@ -440,6 +442,14 @@ impl App {
                         self.set_message("path already exists")
                     }
                 }
+                ":find" => {
+                    match self.inc_find() {
+                        Some(_) => {}
+                        None => self.middle_column.state.select(Some(0))
+                    };
+                    self.set_message("");
+                    self.refresh_right_column()
+                }
                 _ => {
                     // make this into some easter egg, randomize statements and throw
                     // them in for a pinch of fun
@@ -450,7 +460,13 @@ impl App {
             },
             None => {
                 // then it has only one word
-                self.refresh_right_column()
+                match command.as_str() {
+                    ":q" | ":quit" => {
+                        // implement quitting.. lol
+                        self.set_message("press q to quit i have not implemented the command yet...")
+                    }
+                    _ => self.set_message("i have never seen this man in my entire life"),
+                }
             }
         }
     }
@@ -602,7 +618,7 @@ impl App {
 
     fn inc_search(&mut self) {
         let pattern = self.input_mode.get_str();
-        if !pattern.starts_with(|s| s == '/' || s == 'f') {
+        if !pattern.starts_with('/') {
             // ayo wtf are you thinking calling this function without the proper
             // thing
             return;
@@ -617,8 +633,74 @@ impl App {
                 .to_lowercase()
                 .starts_with(pattern)
         });
+        // when canceled it doesnt select anything so...
         self.middle_column.state.select(index);
         self.refresh_middle_column()
+    }
+
+    fn inc_find(&mut self) -> Option<usize> {
+        let pattern = self.input_mode.get_str();
+        if !pattern.starts_with(":find ") {
+            // ayo wtf are you thinking calling this function without the proper
+            // thing
+            return None;
+        }
+        let pattern = &pattern[":find ".len()..].to_lowercase();
+        // this mess here still needs A LOT of testing, it does not seem all that
+        // proof against infinite loops...
+        let index = self
+            .middle_column
+            .items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| {
+                let mut score: Vec<usize> = Vec::new();
+                pattern.chars().for_each(|c| {
+                    let mut max = None;
+                    loop {
+                        eprintln!("char c = {c}");
+                        match item
+                            .path
+                            .file_name()
+                            .unwrap()
+                            .to_str()
+                            .unwrap()
+                            .to_lowercase()
+                            .chars()
+                            .enumerate()
+                            .position(|(i, x)| x == c && (Some(i) > max))
+                        {
+                            Some(pos) => {
+                                eprintln!("pos = {pos} score = {score:?} i = {i} max = {max:?}");
+                                if pos >= *score.iter().max().unwrap_or(&0) && !score.contains(&pos)
+                                {
+                                    score.push(pos);
+                                    break;
+                                } else {
+                                    max = Some(pos);
+                                }
+                            }
+                            None => break,
+                        }
+                    }
+                });
+                (i, score)
+            })
+            .inspect(|x| {
+                eprintln!(
+                    "about to filter this thing to get biggest elements {:?}, while length = {}",
+                    x,
+                    pattern.len()
+                )
+            })
+            .filter(|(_, s)| s.iter().count() == pattern.len())
+            .inspect(|x| eprintln!("getting the minimum of these {:?}", x))
+            .min_by(|x, y| x.1.cmp(&y.1))
+            .map(|x| x.0);
+
+        self.middle_column.state.select(index);
+        self.refresh_middle_column();
+        index
     }
 }
 
@@ -830,9 +912,14 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                     KeyCode::Char('t') => {
                         app.toggle_tag_item();
                     }
-                    KeyCode::Char('f') | KeyCode::Char('/') => {
+                    KeyCode::Char('/') => {
                         // implement incremental search
                         app.input_mode = InputMode::Input("/".to_string());
+                        app.set_message(app.input_mode.get_str());
+                    }
+                    KeyCode::Char('f') => {
+                        // implement incremental search
+                        app.input_mode = InputMode::Input(":find ".to_string());
                         app.set_message(app.input_mode.get_str());
                     }
                     KeyCode::Char(' ') => {
@@ -959,13 +1046,12 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                     KeyCode::Char(c) => {
                         app.input_mode.push(c);
                         app.set_message(app.input_mode.get_str());
-                        if app
-                            .input_mode
-                            .get_str()
-                            .starts_with('/')
-                        {
+                        if app.input_mode.get_str().starts_with('/') {
                             // incrementally highlight the found thing
                             app.inc_search();
+                        } else if app.input_mode.get_str().starts_with(":find ") {
+                            // incrementally highlight the found thing
+                            app.inc_find();
                         }
                     }
                     KeyCode::Enter => {
@@ -975,7 +1061,11 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                     }
                     KeyCode::Backspace => {
                         app.input_mode.pop();
-                        app.set_message(app.input_mode.get_str())
+                        app.set_message(app.input_mode.get_str());
+                        // a bit of a special case here for find
+                        if app.input_mode.get_str().starts_with(":find") {
+                            app.inc_find();
+                        }
                     }
                     KeyCode::Esc => {
                         app.set_message("canceled");
