@@ -445,7 +445,7 @@ impl App {
                 ":find" => {
                     match self.inc_find() {
                         Some(_) => {}
-                        None => self.middle_column.state.select(Some(0))
+                        None => self.middle_column.state.select(Some(0)),
                     };
                     self.set_message("");
                     self.refresh_right_column()
@@ -460,12 +460,23 @@ impl App {
             },
             None => {
                 // then it has only one word
-                match command.as_str() {
-                    ":q" | ":quit" => {
-                        // implement quitting.. lol
-                        self.set_message("press q to quit i have not implemented the command yet...")
+                if command.starts_with('/') {
+                    match self.inc_search() {
+                        Some(_) => {}
+                        None => self.middle_column.state.select(Some(0)),
+                    };
+                    self.set_message("");
+                    self.refresh_right_column()
+                } else {
+                    match command.as_str() {
+                        ":q" | ":quit" => {
+                            // implement quitting.. lol
+                            self.set_message(
+                                "press q to quit i have not implemented the command yet...",
+                            )
+                        }
+                        _ => self.set_message("i have never seen this man in my entire life"),
                     }
-                    _ => self.set_message("i have never seen this man in my entire life"),
                 }
             }
         }
@@ -616,14 +627,14 @@ impl App {
         }
     }
 
-    fn inc_search(&mut self) {
+    fn inc_search(&mut self) -> Option<usize> {
         let pattern = self.input_mode.get_str();
         if !pattern.starts_with('/') {
             // ayo wtf are you thinking calling this function without the proper
             // thing
-            return;
+            return None;
         }
-        let pattern = &pattern[1..].to_lowercase();
+        let pattern = &pattern['/'.len_utf8()..].to_lowercase();
         let index = self.middle_column.items.iter().position(|item| {
             item.path
                 .file_name()
@@ -635,7 +646,8 @@ impl App {
         });
         // when canceled it doesnt select anything so...
         self.middle_column.state.select(index);
-        self.refresh_middle_column()
+        self.refresh_middle_column();
+        index
     }
 
     fn inc_find(&mut self) -> Option<usize> {
@@ -1065,6 +1077,8 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                         // a bit of a special case here for find
                         if app.input_mode.get_str().starts_with(":find") {
                             app.inc_find();
+                        } else if app.input_mode.get_str().starts_with('/') {
+                            app.inc_search();
                         }
                     }
                     KeyCode::Esc => {
