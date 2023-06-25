@@ -9,18 +9,13 @@ use file_format::{FileFormat, Kind};
 use humansize::{format_size, DECIMAL};
 use serde::{Deserialize, Serialize};
 use std::{
-    cmp::Ordering,
     env,
-    fs::{
-        self, copy, create_dir, create_dir_all, read_to_string, remove_dir, remove_dir_all,
-        remove_file, rename, File,
-    },
-    io::{self, BufRead, BufReader, Seek, Write},
-    mem,
+    fs::{self, copy, create_dir, remove_dir, remove_dir_all, remove_file, rename, File},
+    io, mem,
     os::unix::prelude::MetadataExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    time::{Duration, Instant, SystemTime},
+    time::SystemTime,
     usize,
 };
 use tui::{
@@ -99,6 +94,7 @@ impl<T> StatefulList<T> {
 
 enum Confirm {
     DeleteFolder,
+    DeleteSelection(Vec<PathBuf>),
 }
 
 enum InputMode {
@@ -111,25 +107,48 @@ enum InputMode {
     Input(String),
     // confirmation mode for y/n confirmations, call it with the input already
     // filled
-    Confirmation(Confirm),
+    Confirmation(Confirm, char),
+    // select mode is.. well.. for selecting stuff lol
+    Select(Vec<PathBuf>),
 }
 impl InputMode {
-    fn push(&mut self, c: char) {
+    // gotta do better than this
+    fn push_char(&mut self, c: char) {
         match self {
             InputMode::Command(s) | InputMode::Input(s) => s.push(c),
             _ => {}
         }
     }
-    fn pop(&mut self) -> Option<char> {
+    fn push_path(&mut self, p: PathBuf) {
+        match self {
+            InputMode::Select(v) => v.push(p),
+            _ => {}
+        }
+    }
+    fn pop_char(&mut self) -> Option<char> {
         match self {
             InputMode::Command(s) | InputMode::Input(s) => s.pop(),
             _ => None,
+        }
+    }
+    fn remove_path(&mut self, index: usize) {
+        match self {
+            InputMode::Select(v) => {
+                v.remove(index);
+            }
+            _ => {}
         }
     }
     fn get_str(&self) -> String {
         match self {
             InputMode::Command(s) | InputMode::Input(s) => s.to_string(),
             _ => String::new(),
+        }
+    }
+    fn get_selected(&self) -> Vec<PathBuf> {
+        match self {
+            InputMode::Select(s) => s.to_vec(),
+            _ => vec![],
         }
     }
 }
@@ -172,9 +191,7 @@ pub struct App {
     // Current input mode
     input_mode: InputMode,
     // register for yanking and moving
-    yank_register: PathBuf,
-    // register for selecting stuff
-    select_register: Vec<PathBuf>,
+    yank_register: Vec<PathBuf>,
     // app config that gets saved
     config: Config,
 }
@@ -221,8 +238,7 @@ impl App {
             message,
             metadata: String::new(),
             input_mode: InputMode::Normal,
-            yank_register: PathBuf::new(),
-            select_register: Vec::new(),
+            yank_register: Vec::new(),
             config: cfg,
         }
     }
@@ -281,6 +297,7 @@ impl App {
                         _ => self.set_message("yeah i cant open this so far"),
                     }
                 }
+                self.set_metadata()
             }
             None => self.set_message("none selected"),
         }
@@ -309,9 +326,25 @@ impl App {
                     Some(parent) => self.left_column.items = self.ls(parent),
                     None => self.left_column.items = vec![],
                 }
+                self.set_metadata();
+                self.set_message("");
             }
             None => {}
         };
+    }
+
+    fn go_down(&mut self) {
+        self.middle_column.next();
+        self.refresh_right_column();
+        self.set_metadata();
+        self.set_message("");
+    }
+
+    fn go_up(&mut self) {
+        self.middle_column.prev();
+        self.refresh_right_column();
+        self.set_metadata();
+        self.set_message("");
     }
 
     fn refresh_right_column(&mut self) {
@@ -490,19 +523,49 @@ impl App {
     }
 
     fn confirm(&mut self) {
-        match self.input_mode {
-            InputMode::Confirmation(Confirm::DeleteFolder) => match self.get_selected() {
-                Some(selected) => {
-                    // delete all
-                    match remove_dir_all(selected.path.as_path()) {
-                        Ok(_) => {
-                            self.set_message("deleted!");
-                            self.refresh_middle_column();
+        match &self.input_mode {
+            InputMode::Confirmation(confirm, _) => match confirm {
+                Confirm::DeleteFolder => match self.get_selected() {
+                    Some(selected) => {
+                        // delete all
+                        match remove_dir_all(selected.path.as_path()) {
+                            Ok(_) => {
+                                self.set_message("deleted!");
+                                self.refresh_middle_column();
+                                self.refresh_right_column();
+                            }
+                            Err(_) => self.set_message("cant delete"),
+                        };
+                    }
+                    None => self.set_message("Nothing is selected"),
+                },
+                Confirm::DeleteSelection(selection) => {
+                    // have to check each one if its a dir or a file
+                    let mut deleted = 0;
+                    let len = selection.len();
+                    for path in selection.to_vec() {
+                        if path.is_dir() {
+                            match remove_dir_all(path) {
+                                Ok(_) => {
+                                    deleted += 1;
+                                    self.refresh_middle_column();
+                                    self.refresh_right_column();
+                                }
+                                Err(_) => {}
+                            }
+                        } else if path.is_file() {
+                            match remove_file(path) {
+                                Ok(_) => {
+                                    deleted += 1;
+                                    self.refresh_middle_column();
+                                    self.refresh_right_column();
+                                }
+                                Err(_) => {}
+                            }
                         }
-                        Err(_) => self.set_message("cant delete"),
-                    };
+                    }
+                    self.set_message(format!("deleted {deleted} items out of {len}"))
                 }
-                None => self.set_message("Nothing is selected"),
             },
             _ => {}
         }
@@ -528,7 +591,7 @@ impl App {
                         }
                         false => {
                             // this sucks less ig
-                            self.input_mode = InputMode::Confirmation(Confirm::DeleteFolder);
+                            self.input_mode = InputMode::Confirmation(Confirm::DeleteFolder, 'y');
                             self.set_message("are you sure you want to delete this folder and all of its contents? [y/n]")
                         }
                     }
@@ -551,7 +614,7 @@ impl App {
             Some(selected) => {
                 let selected = &selected.path;
                 if selected.is_file() {
-                    self.yank_register = selected.to_path_buf();
+                    self.yank_register.push(selected.to_path_buf());
                     self.set_message("file in register, type p to paste");
                 } else {
                     self.set_message("not a file")
@@ -561,50 +624,52 @@ impl App {
         }
     }
 
-    fn paste_moved_file(&mut self) {
-        let src = &self.yank_register;
-        let dst = PathBuf::new()
-            .join(&self.pwd)
-            .join(src.file_name().unwrap());
-        match copy(&src, &dst) {
-            Ok(_) => {
-                match remove_file(&src) {
-                    Ok(_) => {
-                        self.refresh_middle_column();
-                        let index = get_item_index(&dst, &self.middle_column.items);
-                        self.set_message("deleted src, file moved!");
-                        // select the moved file
-                        self.middle_column.state.select(index)
-                    }
-                    Err(_) => {
-                        self.refresh_middle_column();
-                        self.set_message("copied file, but couldnt remove src");
-                    }
-                };
-            }
-            // might wanna verbalise those
-            Err(_) => self.set_message("something went wrong while moving"),
-        };
-        self.yank_register = PathBuf::new();
+    fn paste_moved(&mut self) {
+        for src in self.yank_register.clone() {
+            let dst = PathBuf::new()
+                .join(&self.pwd)
+                .join(src.file_name().unwrap());
+            match copy(&src, &dst) {
+                Ok(_) => {
+                    match remove_file(&src) {
+                        Ok(_) => {
+                            self.refresh_middle_column();
+                            let index = get_item_index(&dst, &self.middle_column.items);
+                            self.set_message("deleted src, file moved!");
+                            // select the moved file
+                            self.middle_column.state.select(index)
+                        }
+                        Err(_) => {
+                            self.refresh_middle_column();
+                            self.set_message("copied file, but couldnt remove src");
+                        }
+                    };
+                }
+                // might wanna verbalise those
+                Err(_) => self.set_message("something went wrong while moving"),
+            };
+        }
+        self.yank_register = Vec::new()
     }
 
-    fn paste_yanked_file(&mut self) {
-        let src = &self.yank_register;
-        let dst = PathBuf::new()
-            .join(&self.pwd)
-            .join(src.file_name().unwrap());
-        match copy(src, &dst) {
-            Ok(_) => {
-                self.refresh_middle_column();
-                let index = get_item_index(&dst, &self.middle_column.items);
-                self.set_message("pasted!");
-                // select the pasted file
-                self.middle_column.state.select(index)
-            }
-            // might wanna verbalise those
-            Err(_) => self.set_message("something went wrong while pasting"),
-        };
-        self.yank_register = PathBuf::new();
+    fn paste_yanked(&mut self) {
+        for src in self.yank_register.clone() {
+            let dst = PathBuf::new()
+                .join(&self.pwd)
+                .join(src.file_name().unwrap());
+            match copy(src, &dst) {
+                Ok(_) => {
+                    self.refresh_middle_column();
+                    let index = get_item_index(&dst, &self.middle_column.items);
+                    self.set_message("pasted!");
+                    // select the pasted file
+                    self.middle_column.state.select(index)
+                }
+                // might wanna verbalise those
+                Err(_) => self.set_message("something went wrong while pasting"),
+            };
+            self.yank_register = Vec::new();
+        }
     }
 
     // careful this only sorts the cwd for now, and forgets about it once its
@@ -712,12 +777,11 @@ impl App {
         index
     }
 
-    fn select(&mut self) {
+    fn toggle_select(&mut self) {
         match self.get_selected() {
             Some(selected) => {
                 // shit im gonna have to color these somehow
                 // ok i guess i wont color them ill just add some padding or something
-
             }
             None => {}
         }
@@ -758,6 +822,13 @@ fn ls<T: std::cmp::Ord>(
                 },
                 Err(_) => SystemTime::UNIX_EPOCH,
             };
+            let get_date_created = |item: &Item<PathBuf, _>| match item.path.metadata() {
+                Ok(metadata) => match metadata.created() {
+                    Ok(created) => created,
+                    Err(_) => SystemTime::UNIX_EPOCH,
+                },
+                Err(_) => SystemTime::UNIX_EPOCH,
+            };
 
             match order {
                 ListOrder::Default => paths,
@@ -767,6 +838,15 @@ fn ls<T: std::cmp::Ord>(
                 }
                 ListOrder::NameReverse => {
                     paths.sort();
+                    paths.reverse();
+                    paths
+                }
+                ListOrder::Created => {
+                    paths.sort_by(|a, b| get_date_created(a).cmp(&get_date_created(b)));
+                    paths
+                }
+                ListOrder::CreatedReverse => {
+                    paths.sort_by(|a, b| get_date_created(a).cmp(&get_date_created(b)));
                     paths.reverse();
                     paths
                 }
@@ -813,7 +893,13 @@ fn main() -> Result<(), io::Error> {
         if exists {
             pwd = path.to_path_buf();
         } else {
-            pwd = env::current_dir().unwrap();
+            pwd = match env::current_dir() {
+                Ok(pwd) => pwd,
+                Err(_) => {
+                    println!("yo could not get pwd");
+                    return Ok(());
+                }
+            };
         }
     }
 
@@ -851,27 +937,18 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                     KeyCode::Char('l') | KeyCode::Right => {
                         // go right
                         app.go_right();
-                        app.set_metadata();
                     }
                     KeyCode::Char('k') | KeyCode::Up => {
                         // go up
-                        app.middle_column.prev();
-                        app.refresh_right_column();
-                        app.set_metadata();
-                        app.set_message("");
+                        app.go_up()
                     }
                     KeyCode::Char('j') | KeyCode::Down => {
                         // go down
-                        app.middle_column.next();
-                        app.refresh_right_column();
-                        app.set_metadata();
-                        app.set_message("");
+                        app.go_down();
                     }
                     KeyCode::Char('h') | KeyCode::Left => {
                         // go left
                         app.go_left();
-                        app.set_metadata();
-                        app.set_message("");
                     }
                     KeyCode::Char('g') | KeyCode::PageUp => {
                         // go to the beginning
@@ -944,7 +1021,14 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                     }
                     KeyCode::Char(' ') => {
                         // select the current thing
-                        app.select();
+                        match app.get_selected() {
+                            Some(selected) => {
+                                app.input_mode =
+                                    InputMode::Select(vec![selected.path.to_path_buf()]);
+                                app.refresh_middle_column()
+                            }
+                            None => app.set_message("nothing is selected"),
+                        };
                     }
                     _ => {}
                 },
@@ -1010,11 +1094,11 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                             "dd" | "yy" => app.yank_file(),
                             "ddp" => {
                                 app.input_mode = InputMode::Normal;
-                                app.paste_moved_file();
+                                app.paste_moved();
                             }
                             "yyp" => {
                                 app.input_mode = InputMode::Normal;
-                                app.paste_yanked_file();
+                                app.paste_yanked();
                             }
                             "sn" => {
                                 // sort by name
@@ -1025,6 +1109,16 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                                 // sort by name in reverse
                                 app.input_mode = InputMode::Normal;
                                 app.sort_by(ListOrder::NameReverse);
+                            }
+                            "sc" => {
+                                // sort by created
+                                app.input_mode = InputMode::Normal;
+                                app.sort_by(ListOrder::Created);
+                            }
+                            "sC" => {
+                                // sort by created
+                                app.input_mode = InputMode::Normal;
+                                app.sort_by(ListOrder::CreatedReverse);
                             }
                             "sm" => {
                                 // sort by modified
@@ -1060,7 +1154,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                 },
                 InputMode::Input(_) => match key.code {
                     KeyCode::Char(c) => {
-                        app.input_mode.push(c);
+                        app.input_mode.push_char(c);
                         app.set_message(app.input_mode.get_str());
                         if app.input_mode.get_str().starts_with('/') {
                             // incrementally highlight the found thing
@@ -1076,7 +1170,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                         app.input_mode = InputMode::Normal;
                     }
                     KeyCode::Backspace => {
-                        app.input_mode.pop();
+                        app.input_mode.pop_char();
                         app.set_message(app.input_mode.get_str());
                         // a bit of a special case here for find
                         if app.input_mode.get_str().starts_with(":find") {
@@ -1087,12 +1181,13 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                     }
                     KeyCode::Esc => {
                         app.set_message("canceled");
+                        app.refresh_right_column();
                         app.input_mode = InputMode::Normal;
                     }
                     _ => {}
                 },
-                InputMode::Confirmation(_) => match key.code {
-                    KeyCode::Char('y') => {
+                InputMode::Confirmation(_, _c) => match key.code {
+                    KeyCode::Char(_c) => {
                         app.confirm();
                         app.input_mode = InputMode::Normal;
                     }
@@ -1100,6 +1195,76 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                         app.set_message("aborted");
                         app.input_mode = InputMode::Normal;
                     }
+                },
+                InputMode::Select(ref v) => match key.code {
+                    KeyCode::Char('q') => return Ok(()),
+                    KeyCode::Char(' ') => {
+                        // select the current thing
+                        match app.get_selected() {
+                            Some(selected) => {
+                                let selected = &selected.path;
+                                if !v.contains(selected) {
+                                    app.input_mode.push_path(selected.to_path_buf());
+                                    app.refresh_middle_column()
+                                } else {
+                                    match v.iter().position(|x| x == selected) {
+                                        Some(index) => {
+                                            app.input_mode.remove_path(index);
+                                            app.refresh_middle_column()
+                                        }
+                                        None => {}
+                                    }
+                                }
+                                // app.toggle_select();
+                            }
+                            None => app.set_message("nothing is selected"),
+                        };
+                    }
+                    KeyCode::Char('h') | KeyCode::Left => {
+                        app.go_left();
+                        app.input_mode = InputMode::Normal;
+                    }
+                    KeyCode::Char('l') | KeyCode::Right => {
+                        app.go_right();
+                        app.input_mode = InputMode::Normal;
+                    }
+                    KeyCode::Char('k') | KeyCode::Up => {
+                        // go up
+                        app.go_up()
+                    }
+                    KeyCode::Char('j') | KeyCode::Down => {
+                        // go down
+                        app.go_down();
+                    }
+                    KeyCode::Esc => {
+                        app.set_message("canceled");
+                        app.refresh_right_column();
+                        app.input_mode = InputMode::Normal;
+                    }
+                    KeyCode::Backspace => {
+                        app.toggle_hidden_files();
+                        app.refresh_all();
+                        app.set_metadata();
+                    }
+                    KeyCode::Char(c) => match c {
+                        'd' => {
+                            app.yank_register = v.to_vec();
+                            app.input_mode = InputMode::Command("dd".to_string());
+                            app.set_message("files in register, type p to paste")
+                        }
+                        'D' => {
+                            app.input_mode =
+                                InputMode::Confirmation(Confirm::DeleteSelection(v.to_vec()), 'Y');
+                            app.set_message("are you sure you want to delete all selected items? [Y/n]")
+                        }
+                        'y' => {
+                            app.yank_register = v.to_vec();
+                            app.input_mode = InputMode::Command("yy".to_string());
+                            app.set_message("files in register, type p to paste")
+                        }
+                        _ => {}
+                    },
+                    _ => {}
                 },
             }
         }

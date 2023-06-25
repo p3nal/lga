@@ -43,18 +43,32 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
         .items
         .iter()
         .map(|item| {
-            let tagged = match item.tagged {
-                true => '*',
-                false => ' ',
-            };
+            let tagged = if item.tagged { '*' } else { ' ' };
             let item = &item.path;
+            let selected = 
+                    match &app.input_mode {
+                        crate::InputMode::Select(v) => {
+                            if v.contains(item) {
+                                " "
+                            } else {
+                                ""
+                            }
+                        }
+                        _ => "",
+                    };
             // deal with those unwraps man
             if item.is_dir() {
-                ListItem::new(format!("{tagged}{}", item.file_name().unwrap().to_str().unwrap()))
-                    .style(Style::default().fg(Color::LightGreen))
+                ListItem::new(format!(
+                    "{tagged}{selected}{}",
+                    item.file_name().unwrap().to_str().unwrap(),
+                ))
+                .style(Style::default().fg(Color::LightGreen))
             } else {
-                ListItem::new(format!("{tagged}{}", item.file_name().unwrap().to_str().unwrap()))
-                    .style(Style::default().fg(Color::Gray))
+                ListItem::new(format!(
+                    "{tagged}{selected}{}",
+                    item.file_name().unwrap().to_str().unwrap()
+                ))
+                .style(Style::default().fg(Color::Gray))
             }
         })
         .collect();
