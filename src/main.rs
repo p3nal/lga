@@ -565,7 +565,7 @@ impl App {
                             }
                             None => self.set_message("Nothing is selected"),
                         },
-                        Confirm::DeleteSelection(_selection) => {
+                        Confirm::DeleteSelection(selection) => {
                             // have to check each one if its a dir or a file
                             //self.delete_selection(selection);
                         }
@@ -642,10 +642,11 @@ impl App {
         match self.yank_register.mode {
             PasteMode::Move => {
                 for src in self.yank_register.register.clone() {
+                    let dst = PathBuf::new()
+                        .join(&self.pwd)
+                        .join(src.file_name().unwrap());
+                    // might wanna check if src is dst so it dont get truncated
                     if src.is_file() {
-                        let dst = PathBuf::new()
-                            .join(&self.pwd)
-                            .join(src.file_name().unwrap());
                         match copy(&src, &dst) {
                             Ok(_) => {
                                 match remove_file(&src) {
@@ -664,8 +665,21 @@ impl App {
                             Err(_) => {}
                         }
                     } else if src.is_dir() {
-                        // todo
-                        self.set_message("not implemented yet")
+                        match copy_dir_all(&src, &dst) {
+                            Ok(_) => {
+                                match remove_dir_all(&src) {
+                                    Ok(_) => {
+                                        count = count + 1;
+                                        self.refresh_all();
+                                        let index = get_item_index(&dst, &self.middle_column.items);
+                                        // select the moved file
+                                        self.middle_column.state.select(index)
+                                    }
+                                    Err(_) => self.refresh_middle_column(),
+                                }
+                            }
+                            Err(_) => {}
+                        }
                     }
                 }
                 self.set_message(format!(
@@ -675,8 +689,20 @@ impl App {
             PasteMode::Copy => {
                 for src in self.yank_register.register.clone() {
                     if src.is_dir() {
-                        // implement copying dirs
-                        self.set_message("not implemented yet")
+                        // fixme
+                        let dst = PathBuf::new()
+                            .join(&self.pwd)
+                            .join(src.file_name().unwrap());
+                        match copy_dir_all(&src, &dst) {
+                            Ok(_) => {
+                                count = count + 1;
+                                self.refresh_middle_column();
+                                let index = get_item_index(&dst, &self.middle_column.items);
+                                // select the pasted file
+                                self.middle_column.state.select(index)
+                            }
+                            Err(_) => {}
+                        }
                     } else if src.is_file() {
                         let dst = PathBuf::new()
                             .join(&self.pwd)
@@ -694,7 +720,7 @@ impl App {
                     }
                 }
                 self.set_message(format!(
-                    "{count}/{len} items moved. if there are others i dunno about them."
+                    "{count}/{len} items copied. if there are others i dunno about them."
                 ))
             }
         }
@@ -927,6 +953,20 @@ fn ls<T: std::cmp::Ord>(
             vec![]
         }
     }
+}
+
+fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> {
+    fs::create_dir_all(&dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        } else {
+            fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        }
+    }
+    Ok(())
 }
 
 fn main() -> Result<(), io::Error> {
