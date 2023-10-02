@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     env,
     fs::{self, copy, create_dir, remove_dir, remove_dir_all, remove_file, rename, File},
-    io, mem,
+    io::{self, Error, ErrorKind}, mem,
     os::unix::prelude::MetadataExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -956,6 +956,9 @@ fn ls<T: std::cmp::Ord>(
 }
 
 fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> {
+    if dst.as_ref().starts_with(src.as_ref()) {
+        return Err(Error::new(ErrorKind::Other, "copying src inside dst"));
+    }
     fs::create_dir_all(&dst)?;
     for entry in fs::read_dir(src)? {
         let entry = entry?;
