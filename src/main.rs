@@ -24,7 +24,6 @@ use tui::{
     Terminal,
 };
 
-// fuck it. im adding a whole lot of other shit here
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct Item<T, U> {
     path: T,
@@ -618,56 +617,86 @@ impl App {
     }
 
     fn yank_file(&mut self, yankmode: PasteMode) {
-        match self.get_selected() {
-            Some(selected) => {
-                let selected = &selected.path;
-                if selected.is_file() {
+        match &self.input_mode {
+            InputMode::Select(selected) => {
+                for path in selected {
+                    self.yank_register.register.push(path.to_path_buf());
+                }
+                self.yank_register.mode = yankmode;
+            }
+            _ => match self.get_selected() {
+                Some(selected) => {
+                    let selected = &selected.path;
                     self.yank_register.register.push(selected.to_path_buf());
                     self.yank_register.mode = yankmode;
                     self.set_message("file in register, type p to paste");
-                } else {
-                    self.set_message("not a file")
                 }
-            }
-            None => self.set_message("Nothing is selected"),
+                None => self.set_message("Nothing is selected"),
+            },
         }
     }
 
     fn paste(&mut self) {
-        for src in self.yank_register.register.clone() {
-            let dst = PathBuf::new()
-                .join(&self.pwd)
-                .join(src.file_name().unwrap());
-            match copy(&src, &dst) {
-                Ok(_) => {
-                    match self.yank_register.mode {
-                        PasteMode::Move => {
-                            match remove_file(&src) {
-                                Ok(_) => {
-                                    self.refresh_all();
-                                    let index = get_item_index(&dst, &self.middle_column.items);
-                                    self.set_message("deleted src, file moved!");
-                                    // select the moved file
-                                    self.middle_column.state.select(index)
-                                }
-                                Err(_) => {
-                                    self.refresh_middle_column();
-                                    self.set_message("copied file, but couldnt remove src");
-                                }
-                            };
+        let len = self.yank_register.register.len();
+        let mut count = 0;
+        match self.yank_register.mode {
+            PasteMode::Move => {
+                for src in self.yank_register.register.clone() {
+                    if src.is_file() {
+                        let dst = PathBuf::new()
+                            .join(&self.pwd)
+                            .join(src.file_name().unwrap());
+                        match copy(&src, &dst) {
+                            Ok(_) => {
+                                match remove_file(&src) {
+                                    Ok(_) => {
+                                        count = count + 1;
+                                        self.refresh_all();
+                                        let index = get_item_index(&dst, &self.middle_column.items);
+                                        // select the moved file
+                                        self.middle_column.state.select(index)
+                                    }
+                                    Err(_) => {
+                                        self.refresh_middle_column();
+                                    }
+                                };
+                            }
+                            Err(_) => {}
                         }
-                        PasteMode::Copy => {
-                            self.refresh_middle_column();
-                            let index = get_item_index(&dst, &self.middle_column.items);
-                            self.set_message("pasted!");
-                            // select the pasted file
-                            self.middle_column.state.select(index)
+                    } else if src.is_dir() {
+                        // todo
+                        self.set_message("not implemented yet")
+                    }
+                }
+                self.set_message(format!(
+                    "{count}/{len} items moved. if there are others i dunno about them."
+                ))
+            }
+            PasteMode::Copy => {
+                for src in self.yank_register.register.clone() {
+                    if src.is_dir() {
+                        // implement copying dirs
+                        self.set_message("not implemented yet")
+                    } else if src.is_file() {
+                        let dst = PathBuf::new()
+                            .join(&self.pwd)
+                            .join(src.file_name().unwrap());
+                        match copy(&src, &dst) {
+                            Ok(_) => {
+                                count = count + 1;
+                                self.refresh_middle_column();
+                                let index = get_item_index(&dst, &self.middle_column.items);
+                                // select the pasted file
+                                self.middle_column.state.select(index)
+                            }
+                            Err(_) => {}
                         }
                     }
                 }
-                // might wanna verbalise those
-                Err(_) => self.set_message("something went wrong while pasting/moving"),
-            };
+                self.set_message(format!(
+                    "{count}/{len} items moved. if there are others i dunno about them."
+                ))
+            }
         }
         self.yank_register.register = Vec::new()
     }
@@ -999,23 +1028,19 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                         app.set_message("type D to delete or d to move");
                         app.input_mode = InputMode::Command("d".to_string());
                     }
-                    KeyCode::Char('p') => {
-                        //debug msg:
-                        app.set_message(format!(
-                            "yank register: {:#?}",
-                            app.yank_register.register
-                        ));
-                        app.paste();
-                    }
                     KeyCode::Char('y') | KeyCode::Char('Y') => {
                         // yank stuff
                         app.set_message("type y to yank");
                         app.input_mode = InputMode::Command("y".to_string());
                     }
+                    KeyCode::Char('p') => {
+                        app.set_message("pasted");
+                        app.paste();
+                    }
                     KeyCode::Char('s') => {
                         // sort
                         app.set_message(
-                            "sort by name [n], modified date [m], dirs first [d], files first [f]",
+                            "sort by name [N/n], modified date [M/m], dirs first [d], files first [f]",
                         );
                         app.input_mode = InputMode::Command("s".to_string());
                     }
@@ -1063,62 +1088,6 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                     _ => {}
                 },
                 InputMode::Command(ref mut command) => match key.code {
-                    // KeyCode::Char('q') => return Ok(()),
-                    // KeyCode::Char('l') | KeyCode::Right => {
-                    //     // go right
-                    //     app.go_right();
-                    //     app.set_metadata();
-                    //             app.input_mode = InputMode::Normal;
-                    // }
-                    // KeyCode::Char('k') | KeyCode::Up => {
-                    //     // go up
-                    //     app.middle_column.prev();
-                    //     app.refresh_right_column();
-                    //     app.set_metadata();
-                    //     app.set_message("");
-                    //             app.input_mode = InputMode::Normal;
-                    // }
-                    // KeyCode::Char('j') | KeyCode::Down => {
-                    //     // go down
-                    //     app.middle_column.next();
-                    //     app.refresh_right_column();
-                    //     app.set_metadata();
-                    //     app.set_message("");
-                    //             app.input_mode = InputMode::Normal;
-                    // }
-                    // KeyCode::Char('h') | KeyCode::Left => {
-                    //     // go left
-                    //     app.go_left();
-                    //     app.set_metadata();
-                    //     app.set_message("");
-                    //             app.input_mode = InputMode::Normal;
-                    // }
-                    // KeyCode::Char('g') | KeyCode::PageUp => {
-                    //     // go to the beginning
-                    //     app.middle_column
-                    //         .state
-                    //         .select(app.middle_column.items.len().gt(&0).then_some(0));
-                    //     app.refresh_middle_column();
-                    //     app.refresh_right_column();
-                    //     app.set_metadata();
-                    //     app.set_message("");
-                    //             app.input_mode = InputMode::Normal;
-                    // }
-                    // KeyCode::Char('G') | KeyCode::PageDown => {
-                    //     // go to the end
-                    //     app.middle_column
-                    //         .state
-                    //         .select(app.middle_column.items.len().checked_sub(1));
-                    //     app.refresh_middle_column();
-                    //     app.refresh_right_column();
-                    //     app.set_metadata();
-                    //     app.set_message("");
-                    //             app.input_mode = InputMode::Normal;
-                    // }
-                    // KeyCode::Backspace => {
-                    //     app.toggle_hidden_files();
-                    //             app.input_mode = InputMode::Normal;
-                    // }
                     KeyCode::Char(c) => {
                         command.push(c);
                         match command.as_str() {
@@ -1133,10 +1102,6 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                             "yy" => {
                                 app.input_mode = InputMode::Normal;
                                 app.yank_file(PasteMode::Copy)
-                            }
-                            "p" => {
-                                app.input_mode = InputMode::Normal;
-                                app.paste();
                             }
                             "sn" => {
                                 // sort by name
@@ -1285,7 +1250,8 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                     KeyCode::Char(c) => match c {
                         'd' => {
                             app.yank_register.register = v.to_vec();
-                            app.input_mode = InputMode::Command("dd".to_string());
+                            app.yank_register.mode = PasteMode::Move;
+                            app.input_mode = InputMode::Normal;
                             app.set_message("files in register, type p to paste")
                         }
                         'D' => {
@@ -1297,7 +1263,8 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                         }
                         'y' => {
                             app.yank_register.register = v.to_vec();
-                            app.input_mode = InputMode::Command("yy".to_string());
+                            app.yank_register.mode = PasteMode::Copy;
+                            app.input_mode = InputMode::Normal;
                             app.set_message("files in register, type p to paste")
                         }
                         _ => {}
