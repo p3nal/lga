@@ -1,5 +1,5 @@
 mod ui;
-use confy;
+use confy::{load, store};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::{
     env,
     fs::{self, copy, create_dir, remove_dir, remove_dir_all, remove_file, rename, File},
-    io::{self, Error, ErrorKind}, mem,
+    io::{self, Error, ErrorKind},
+    mem,
     os::unix::prelude::MetadataExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -209,7 +210,7 @@ impl App {
     fn new(pwd: PathBuf, hidden: bool) -> App {
         // we might need to display some message on start
         let message = String::new();
-        let cfg: Config = confy::load("lga", Some("tags")).unwrap();
+        let cfg: Config = load("lga", Some("tags")).unwrap();
         // list the parent stuff
         let left_column_items = match pwd.parent() {
             Some(parent) => ls(parent, hidden, &ListOrder::DirsFirst, &cfg.tags),
@@ -567,7 +568,7 @@ impl App {
                         },
                         Confirm::DeleteSelection(selection) => {
                             // have to check each one if its a dir or a file
-                            //self.delete_selection(selection);
+                            self.delete_selection(&selection.clone())
                         }
                     }
                 } else {
@@ -645,7 +646,9 @@ impl App {
                     let dst = PathBuf::new()
                         .join(&self.pwd)
                         .join(src.file_name().unwrap());
-                    // might wanna check if src is dst so it dont get truncated
+                    if src.eq(&dst) {
+                        continue;
+                    }
                     if src.is_file() {
                         match copy(&src, &dst) {
                             Ok(_) => {
@@ -684,15 +687,18 @@ impl App {
                 }
                 self.set_message(format!(
                     "{count}/{len} items moved. if there are others i dunno about them."
-                ))
+                ));
             }
             PasteMode::Copy => {
                 for src in self.yank_register.register.clone() {
+                    let dst = PathBuf::new()
+                        .join(&self.pwd)
+                        .join(src.file_name().unwrap());
+                    if src.eq(&dst) {
+                        continue;
+                    }
                     if src.is_dir() {
                         // fixme
-                        let dst = PathBuf::new()
-                            .join(&self.pwd)
-                            .join(src.file_name().unwrap());
                         match copy_dir_all(&src, &dst) {
                             Ok(_) => {
                                 count = count + 1;
@@ -704,9 +710,6 @@ impl App {
                             Err(_) => {}
                         }
                     } else if src.is_file() {
-                        let dst = PathBuf::new()
-                            .join(&self.pwd)
-                            .join(src.file_name().unwrap());
                         match copy(&src, &dst) {
                             Ok(_) => {
                                 count = count + 1;
@@ -721,7 +724,7 @@ impl App {
                 }
                 self.set_message(format!(
                     "{count}/{len} items copied. if there are others i dunno about them."
-                ))
+                ));
             }
         }
         self.yank_register.register = Vec::new()
@@ -1004,7 +1007,7 @@ fn main() -> Result<(), io::Error> {
     let mut app = App::new(pwd, true);
     app.middle_column.state.select(Some(0));
     let res = run_app(&mut terminal, &mut app);
-    confy::store("lga", Some("tags"), app.config).unwrap();
+    store("lga", Some("tags"), app.config).unwrap();
 
     // restore terminal
     disable_raw_mode()?;
@@ -1123,7 +1126,8 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                             Some(selected) => {
                                 app.input_mode =
                                     InputMode::Select(vec![selected.path.to_path_buf()]);
-                                app.refresh_middle_column()
+                                app.refresh_middle_column();
+                                app.set_message("Selected 1 item.")
                             }
                             None => app.set_message("nothing is selected"),
                         };
@@ -1242,78 +1246,89 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                         app.input_mode = InputMode::Normal;
                     }
                 },
-                InputMode::Select(ref v) => match key.code {
-                    KeyCode::Char('q') => return Ok(()),
-                    KeyCode::Char(' ') => {
-                        // select the current thing
-                        match app.get_selected() {
-                            Some(selected) => {
-                                let selected = &selected.path;
-                                if !v.contains(selected) {
-                                    app.input_mode.push_path(selected.to_path_buf());
-                                    app.refresh_middle_column()
-                                } else {
-                                    match v.iter().position(|x| x == selected) {
-                                        Some(index) => {
-                                            app.input_mode.remove_path(index);
-                                            app.refresh_middle_column()
+                InputMode::Select(ref v) => {
+                    let mut len = v.len();
+                    match key.code {
+                        KeyCode::Char('q') => return Ok(()),
+                        KeyCode::Char(' ') => {
+                            // select the current thing
+                            match app.get_selected() {
+                                Some(selected) => {
+                                    let selected = &selected.path;
+                                    if !v.contains(selected) {
+                                        app.input_mode.push_path(selected.to_path_buf());
+                                        len = len + 1;
+                                        app.refresh_middle_column();
+                                    } else {
+                                        match v.iter().position(|x| x == selected) {
+                                            Some(index) => {
+                                                app.input_mode.remove_path(index);
+                                                len = len - 1;
+                                                app.refresh_middle_column()
+                                            }
+                                            None => {}
                                         }
-                                        None => {}
                                     }
+                                    // app.toggle_select();
+                                    app.set_message(format!("Selected {} items.", len));
                                 }
-                                // app.toggle_select();
+                                None => app.set_message("nothing is selected"),
+                            };
+                        }
+                        KeyCode::Char('h') | KeyCode::Left => {
+                            app.go_left();
+                            app.input_mode = InputMode::Normal;
+                        }
+                        KeyCode::Char('l') | KeyCode::Right => {
+                            app.go_right();
+                            app.input_mode = InputMode::Normal;
+                        }
+                        KeyCode::Char('k') | KeyCode::Up => {
+                            // go up
+                            app.go_up();
+                            app.set_message(format!("Selected {} items.", len));
+                        }
+                        KeyCode::Char('j') | KeyCode::Down => {
+                            // go down
+                            app.go_down();
+                            app.set_message(format!("Selected {} items.", len));
+                        }
+                        KeyCode::Esc => {
+                            app.set_message("canceled");
+                            app.refresh_right_column();
+                            app.input_mode = InputMode::Normal;
+                        }
+                        KeyCode::Backspace => {
+                            app.toggle_hidden_files();
+                            app.set_message(format!("Selected {} items.", len));
+                        }
+                        KeyCode::Char(c) => match c {
+                            'd' => {
+                                app.yank_register.register = v.to_vec();
+                                app.yank_register.mode = PasteMode::Move;
+                                app.input_mode = InputMode::Normal;
+                                app.set_message("files in register, type p to paste")
                             }
-                            None => app.set_message("nothing is selected"),
-                        };
-                    }
-                    KeyCode::Char('h') | KeyCode::Left => {
-                        app.go_left();
-                        app.input_mode = InputMode::Normal;
-                    }
-                    KeyCode::Char('l') | KeyCode::Right => {
-                        app.go_right();
-                        app.input_mode = InputMode::Normal;
-                    }
-                    KeyCode::Char('k') | KeyCode::Up => {
-                        // go up
-                        app.go_up()
-                    }
-                    KeyCode::Char('j') | KeyCode::Down => {
-                        // go down
-                        app.go_down();
-                    }
-                    KeyCode::Esc => {
-                        app.set_message("canceled");
-                        app.refresh_right_column();
-                        app.input_mode = InputMode::Normal;
-                    }
-                    KeyCode::Backspace => {
-                        app.toggle_hidden_files();
-                    }
-                    KeyCode::Char(c) => match c {
-                        'd' => {
-                            app.yank_register.register = v.to_vec();
-                            app.yank_register.mode = PasteMode::Move;
-                            app.input_mode = InputMode::Normal;
-                            app.set_message("files in register, type p to paste")
-                        }
-                        'D' => {
-                            app.input_mode =
-                                InputMode::Confirmation(Confirm::DeleteSelection(v.to_vec()), 'Y');
-                            app.set_message(
-                                "are you sure you want to delete all selected items? [Y/n]",
-                            )
-                        }
-                        'y' => {
-                            app.yank_register.register = v.to_vec();
-                            app.yank_register.mode = PasteMode::Copy;
-                            app.input_mode = InputMode::Normal;
-                            app.set_message("files in register, type p to paste")
-                        }
+                            'D' => {
+                                app.input_mode = InputMode::Confirmation(
+                                    Confirm::DeleteSelection(v.to_vec()),
+                                    'Y',
+                                );
+                                app.set_message(
+                                    "are you sure you want to delete all selected items? [Y/n]",
+                                )
+                            }
+                            'y' => {
+                                app.yank_register.register = v.to_vec();
+                                app.yank_register.mode = PasteMode::Copy;
+                                app.input_mode = InputMode::Normal;
+                                app.set_message("files in register, type p to paste")
+                            }
+                            _ => {}
+                        },
                         _ => {}
-                    },
-                    _ => {}
-                },
+                    }
+                }
             }
         }
     }
