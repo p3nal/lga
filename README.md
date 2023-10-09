@@ -11,8 +11,8 @@ Currently working commands:
  - `a` or `:rename`: rename
  - `:touch`: touch file
  - `:mkdir`: mkdir dir
- - `sn/N`: sort by name/reverse name
- - `sm/M`: sort by date modified/reverse date modified
+ - `sn`/`N`: sort by name/reverse name
+ - `sm`/`M`: sort by date modified/reverse date modified
  - `sd`: directories first
  - `sf`: files first
  - `t`: tag/untag a file
