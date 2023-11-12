@@ -20,6 +20,11 @@ Currently working commands:
  - `f` or `:find`: incremental search but not as restrictive (i don't know what it's called, but you only need to type some letters in their order.. just like in neovim telescope or completion with LSPs...)
  - spacebar: select multiple items and perform operations on them (`y` to yank, `d` to move, `D` to delete)
 
-todo:
+TODO:
  - previews (at least for text files)
  - bulkrename maybe?
+
+Dependencies:
+ - vlc
+ - sxiv
+ - zathura
