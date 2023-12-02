@@ -292,14 +292,6 @@ impl App {
                                 .spawn()
                                 .expect("failed to exec");
                         }
-                        Kind::Text | Kind::Application => {
-                            self.set_message("opening these messes up the terminal for now")
-                            // Command::new("/usr/bin/nvim")
-                            //     .arg(selected.as_path())
-                            //     .stderr(Stdio::null())
-                            //     .spawn()
-                            //     .expect("failed to exec");
-                        }
                         Kind::Image => {
                             Command::new("/usr/bin/sxiv")
                                 .arg(selected.as_path())
@@ -313,6 +305,14 @@ impl App {
                                 .stderr(Stdio::null())
                                 .spawn()
                                 .expect("failed to exec");
+                        }
+                        Kind::Text | Kind::Application => {
+                            self.set_message("opening these messes up the terminal for now")
+                            // Command::new("/usr/bin/nvim")
+                            //     .arg(selected.as_path())
+                            //     .stderr(Stdio::null())
+                            //     .spawn()
+                            //     .expect("failed to exec");
                         }
                         _ => self.set_message("yeah i cant open this so far"),
                     }
