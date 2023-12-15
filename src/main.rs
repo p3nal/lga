@@ -835,7 +835,7 @@ impl App {
 
     fn toggle_select(&mut self) {
         match self.get_selected() {
-            Some(selected) => {
+            Some(_selected) => {
                 // shit im gonna have to color these somehow
                 // ok i guess i wont color them ill just add some padding or something
             }
