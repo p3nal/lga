@@ -286,21 +286,21 @@ impl App {
                     match FileFormat::from_file(selected).unwrap().kind() {
                         // TODO fix these, read the programs from a config file
                         Kind::Book | Kind::Document => {
-                            Command::new("/usr/bin/zathura")
+                            Command::new("zathura")
                                 .arg(selected.as_path())
                                 .stderr(Stdio::null())
                                 .spawn()
                                 .expect("failed to exec");
                         }
                         Kind::Image => {
-                            Command::new("/usr/bin/sxiv")
+                            Command::new("sxiv")
                                 .arg(selected.as_path())
                                 .stderr(Stdio::null())
                                 .spawn()
                                 .expect("failed to exec");
                         }
                         Kind::Video => {
-                            Command::new("/usr/bin/vlc")
+                            Command::new("vlc")
                                 .arg(selected.as_path())
                                 .stderr(Stdio::null())
                                 .spawn()
