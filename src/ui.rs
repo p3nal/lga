@@ -62,7 +62,7 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
                     "{tagged}{selected}{}",
                     item.file_name().unwrap().to_str().unwrap(),
                 ))
-                .style(Style::default().fg(Color::LightGreen))
+                .style(Style::default().fg(Color::Green))
             } else {
                 ListItem::new(format!(
                     "{tagged}{selected}{}",
@@ -86,7 +86,7 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded),
         )
-        .style(Style::default().fg(Color::Blue));
+        .style(Style::default().fg(Color::LightBlue).add_modifier(Modifier::BOLD));
 
     let middle_block = List::new(middle_column_list)
         .block(
@@ -94,10 +94,10 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded),
         )
-        .style(Style::default().fg(Color::White))
+        .style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
         .highlight_style(
             Style::default()
-                .bg(Color::LightGreen)
+                .bg(Color::Green)
                 .fg(Color::Black)
                 .add_modifier(Modifier::BOLD),
         );
@@ -108,7 +108,7 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded),
         )
-        .style(Style::default().fg(Color::Red));
+        .style(Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD));
 
     // header
     let header = match app.get_selected() {
