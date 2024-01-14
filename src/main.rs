@@ -446,6 +446,13 @@ impl App {
             }
             None => String::new(),
         };
+        let (created, modified) = match self.get_selected() {
+            Some(selected) => match selected.path.metadata() {
+                Ok(metadata) => (format!("{:?}", metadata.created()), format!("{:?}", metadata.modified())),
+                Err(_) => (String::new(),String::new()),
+            }
+            None => (String::new(),String::new()),
+        };
         self.metadata = format!("{size}  {index}")
     }
 
