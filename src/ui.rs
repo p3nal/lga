@@ -8,6 +8,7 @@ use tui::{
 };
 
 pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
+    // Chunks
     let vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints(
@@ -24,8 +25,8 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
         .constraints(
             [
                 Constraint::Percentage(20),
-                Constraint::Percentage(50),
-                Constraint::Percentage(30),
+                Constraint::Percentage(40),
+                Constraint::Percentage(40),
             ]
             .as_ref(),
         )
@@ -109,18 +110,6 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
                 .add_modifier(Modifier::BOLD),
         );
 
-    let right_block = List::new(right_column_list)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded),
-        )
-        .style(
-            Style::default()
-                .fg(Color::LightRed)
-                .add_modifier(Modifier::BOLD),
-        );
-
     // header
     let header = match app.get_selected() {
         Some(selected) => selected.path.display().to_string(),
@@ -133,6 +122,7 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
     // footer(s)
     let metadata = Paragraph::new(app.metadata.as_ref()).alignment(Alignment::Right);
     let message = Paragraph::new(app.message.as_ref()).alignment(Alignment::Left);
+
 
     // Render into chunks of the layout.
     frame.render_widget(header, vertical_chunks[0]);
@@ -155,6 +145,17 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
                 frame.render_widget(prev, chunks[2]);
             }
             None => {
+                let right_block = List::new(right_column_list)
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .border_type(BorderType::Rounded),
+                    )
+                    .style(
+                        Style::default()
+                            .fg(Color::LightRed)
+                            .add_modifier(Modifier::BOLD),
+                    );
                 frame.render_widget(right_block, chunks[2]);
             }
         },
