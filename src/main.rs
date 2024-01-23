@@ -370,14 +370,26 @@ impl App {
     fn refresh_right_column(&mut self) {
         match self.get_selected() {
             Some(selected) => {
-                let selected = &selected.path;
-                let path = selected.as_path();
-                if selected.is_dir() {
+                let selected_path = &selected.path;
+                let path = selected_path.as_path();
+                if selected_path.is_dir() {
                     self.right_column.items = self.ls(&path);
                     if self.right_column.items.len() > 0 {
                         self.right_column.state.select(Some(0));
                     }
-                } else if selected.is_file() {
+                } else if selected_path.is_file() {
+                    match FileFormat::from_file(selected_path).unwrap().kind() {
+                        Kind::Text => {
+                            if selected_path.metadata().unwrap().size().le(&100000) {
+                                let preview = "".to_string();
+                                let preview = fs::read_to_string(selected_path).unwrap_or("problem reading file".to_string());
+                                self.get_mut_selected().unwrap().set_preview(preview);
+                            } else {
+                                self.get_mut_selected().unwrap().set_preview("cant preview".to_string());
+                            }
+                        }
+                        _ => {}
+                    }
                     self.right_column.items = vec![];
                 } else {
                     // just cuz it probably needs to be handled later
@@ -1133,11 +1145,15 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                             Some(selected) => {
                                 app.input_mode =
                                     InputMode::Select(vec![selected.path.to_path_buf()]);
-                                app.refresh_middle_column();
+                                app.go_down();
                                 app.set_message("Selected 1 item.")
                             }
                             None => app.set_message("nothing is selected"),
                         };
+                    }
+                    KeyCode::Char('T') => {
+                        // TODO needs refinement to only include tags in cwd
+                        app.set_message(format!("Tags count: {}", app.config.tags.len()))
                     }
                     _ => {}
                 },
@@ -1265,13 +1281,13 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                                     if !v.contains(selected) {
                                         app.input_mode.push_path(selected.to_path_buf());
                                         len = len + 1;
-                                        app.refresh_middle_column();
+                                        app.go_down();
                                     } else {
                                         match v.iter().position(|x| x == selected) {
                                             Some(index) => {
                                                 app.input_mode.remove_path(index);
                                                 len = len - 1;
-                                                app.refresh_middle_column()
+                                                app.go_down();
                                             }
                                             None => {}
                                         }

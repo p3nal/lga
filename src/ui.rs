@@ -45,17 +45,16 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
         .map(|item| {
             let tagged = if item.tagged { '*' } else { ' ' };
             let item = &item.path;
-            let selected = 
-                    match &app.input_mode {
-                        crate::InputMode::Select(v) => {
-                            if v.contains(item) {
-                                " "
-                            } else {
-                                ""
-                            }
-                        }
-                        _ => "",
-                    };
+            let selected = match &app.input_mode {
+                crate::InputMode::Select(v) => {
+                    if v.contains(item) {
+                        " "
+                    } else {
+                        ""
+                    }
+                }
+                _ => "",
+            };
             // deal with those unwraps man
             if item.is_dir() {
                 ListItem::new(format!(
@@ -86,7 +85,11 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded),
         )
-        .style(Style::default().fg(Color::LightBlue).add_modifier(Modifier::BOLD));
+        .style(
+            Style::default()
+                .fg(Color::LightBlue)
+                .add_modifier(Modifier::BOLD),
+        );
 
     let middle_block = List::new(middle_column_list)
         .block(
@@ -94,7 +97,11 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded),
         )
-        .style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
+        .style(
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )
         .highlight_style(
             Style::default()
                 .bg(Color::Green)
@@ -108,7 +115,11 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded),
         )
-        .style(Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD));
+        .style(
+            Style::default()
+                .fg(Color::LightRed)
+                .add_modifier(Modifier::BOLD),
+        );
 
     // header
     let header = match app.get_selected() {
@@ -127,7 +138,29 @@ pub fn ui<B: Backend>(frame: &mut Frame<B>, app: &mut App) {
     frame.render_widget(header, vertical_chunks[0]);
     frame.render_widget(left_block, chunks[0]);
     frame.render_stateful_widget(middle_block, chunks[1], &mut app.middle_column.state);
-    frame.render_widget(right_block, chunks[2]);
+    match app.get_selected() {
+        Some(selected) => match &selected.preview {
+            Some(preview) => {
+                let prev = Paragraph::new(preview.to_owned())
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .border_type(BorderType::Rounded),
+                    )
+                    .style(
+                        Style::default()
+                            .fg(Color::LightRed)
+                            .add_modifier(Modifier::BOLD),
+                    );
+                frame.render_widget(prev, chunks[2]);
+            }
+            None => {
+                frame.render_widget(right_block, chunks[2]);
+            }
+        },
+        None => {}
+    };
+    // frame.render_widget(right_block, chunks[2]);
     frame.render_widget(metadata, vertical_chunks[2]);
     frame.render_widget(message, vertical_chunks[2]);
 }
