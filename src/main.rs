@@ -380,12 +380,12 @@ impl App {
                 } else if selected_path.is_file() {
                     match FileFormat::from_file(selected_path).unwrap().kind() {
                         Kind::Text => {
-                            if selected_path.metadata().unwrap().size().le(&100000) {
+                            if selected_path.metadata().unwrap().size().le(&200000) {
                                 let preview = "".to_string();
                                 let preview = fs::read_to_string(selected_path).unwrap_or("problem reading file".to_string());
                                 self.get_mut_selected().unwrap().set_preview(preview);
                             } else {
-                                self.get_mut_selected().unwrap().set_preview("cant preview".to_string());
+                                self.get_mut_selected().unwrap().set_preview("File too big for preview".to_string());
                             }
                         }
                         _ => {}
